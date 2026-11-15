@@ -1,7 +1,7 @@
 /* Mi Día — permite abrir la app sin conexión.
    Estrategia: siempre se intenta la red primero (así las actualizaciones
    llegan solas) y, si no hay conexión, se usa la última copia guardada. */
-const CACHE = 'midia-v4';
+const CACHE = 'midia-v5';
 const SHELL = [
   './', 'index.html', 'manifest.json', 'icon.svg',
   'styles.css',
@@ -10,7 +10,9 @@ const SHELL = [
 ];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE)
+    .then(c => c.addAll(SHELL.map(u => new Request(u, { cache: 'reload' }))))
+    .then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', e => {
@@ -43,8 +45,10 @@ self.addEventListener('fetch', e => {
   const own = url.origin === self.location.origin;
   const sdk = url.hostname === 'www.gstatic.com' && url.pathname.startsWith('/firebasejs/');
   if (e.request.method !== 'GET' || (!own && !sdk)) return;   // datos, portadas, etc. van directos a la red
+  /* Los archivos de la app se comprueban siempre con el servidor (sin usar la copia de 10 min
+     del navegador), para que una versión nueva llegue en cuanto se publica */
   e.respondWith(
-    fetch(e.request).then(res => {
+    fetch(own ? new Request(e.request, { cache: 'no-cache' }) : e.request).then(res => {
       if (res.ok || res.type === 'opaque') { const copy = res.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); }
       return res;
     }).catch(() => caches.match(e.request, { ignoreSearch: true }).then(hit => hit || caches.match('index.html')))

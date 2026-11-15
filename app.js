@@ -544,5 +544,15 @@ if (Cloud.enabled) {
 
 /* Permite instalarla y abrirla sin conexión (solo cuando está publicada o en localhost) */
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-  navigator.serviceWorker.register('sw.js').catch(() => { /* la app funciona igual sin él */ });
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(reg => {
+    /* Al volver a la app (p. ej. abrirla de nuevo en el iPhone) se comprueba si hay versión nueva */
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); });
+  }).catch(() => { /* la app funciona igual sin él */ });
+  /* Cuando se instala una versión nueva, se recarga sola una vez (si no hay un formulario abierto) */
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (reloaded || $('#sheet-root').innerHTML || $('#f-auth')) return;
+    reloaded = true;
+    location.reload();
+  });
 }
