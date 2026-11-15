@@ -133,6 +133,8 @@ h2 { font-size: 20px; font-weight: 700; letter-spacing: -.01em; }
 /* ---------- filtros ---------- */
 .chips { display: flex; gap: 8px; overflow-x: auto; padding: 2px 16px 12px; margin: 0 -16px; scrollbar-width: none; }
 .chips::-webkit-scrollbar { display: none; }
+/* Con ratón no se puede deslizar: los filtros pasan a varias líneas para que se vean todos */
+@media (hover: hover) and (pointer: fine) { .chips { flex-wrap: wrap; overflow: visible; } }
 .chip { flex: none; padding: 7px 13px; border-radius: 99px; background: var(--card); font-size: 14.5px; font-weight: 500; box-shadow: var(--shadow); white-space: nowrap; }
 .chip.on { background: var(--c, var(--text)); color: #fff; }
 .chip.on:not([style]) { color: var(--bg); }
