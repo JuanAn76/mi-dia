@@ -15,6 +15,9 @@ const FIREBASE_CONFIG = {
   messagingSenderId: "429169271352",
   appId: "1:429169271352:web:99ca957e244a61bcd93ccd"
 };
+
+/* Dirección del servidor de avisos (Cloudflare Worker). Mientras valga null, no hay avisos. */
+const PUSH_SERVER = 'https://mi-dia-avisos.jaserranor.workers.dev';
 /* Ejemplo:
 const FIREBASE_CONFIG = {
   apiKey: "…",

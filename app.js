@@ -290,6 +290,7 @@ function settingsSheet() {
       <p class="muted">${cloud
         ? `Sesión iniciada como <b>${esc(Cloud.user.email)}</b>. Tus datos se sincronizan entre todos los dispositivos donde entres con esta cuenta, y también se guardan sin conexión.`
         : 'Ahora mismo todo se guarda <b>solo en este dispositivo</b>. La sincronización se activa al conectar la app con Firebase.'}</p></div>
+    ${cloud ? '<div class="group pad"><span class="group-title">Avisos 🔔</span><div id="push-box"><p class="muted">Comprobando…</p></div></div>' : ''}
     <div class="group pad"><span class="group-title">Diagnóstico</span><div id="diag" class="stat-rows"><p class="muted">Comprobando…</p></div></div>
     <button class="btn ghost full" data-action="export">Descargar copia de seguridad</button>
     <label class="btn ghost full">Restaurar una copia…<input type="file" id="import-file" accept="application/json,.json" hidden></label>
@@ -299,11 +300,12 @@ function settingsSheet() {
     ${cloud ? '<button class="btn ghost full" data-action="logout">Cerrar sesión</button>' : ''}
     <button class="btn danger full" data-action="reset">Borrar todo y empezar de cero</button>`;
   openSheet({ title: 'Ajustes', body, cancelLabel: 'Cerrar' });
+  renderPushSettings();
   runDiagnostics();
 }
 
 /* Compara lo que hay en este dispositivo con lo que hay de verdad en la nube */
-const APP_VERSION = 'v6 · 15 nov';
+const APP_VERSION = 'v7 · avisos';
 async function runDiagnostics() {
   const show = (rows, verdict) => {
     const el = $('#diag');
@@ -410,6 +412,19 @@ const ACTIONS = {
     if (marked.length) setTimeout(() => notifyMarked(marked), 2700);
   },
 
+  'push-on': el => {
+    el.disabled = true; el.textContent = 'Activando…';
+    pushEnable().then(() => { toast('Avisos activados en este dispositivo'); renderPushSettings(); })
+      .catch(e => { toast(e.message === 'denegado' ? 'No se dio permiso para las notificaciones' : 'No se pudieron activar los avisos. Inténtalo de nuevo.'); renderPushSettings(); });
+  },
+  'push-off': el => { el.disabled = true; pushDisable().then(() => { toast('Avisos desactivados en este dispositivo'); renderPushSettings(); }).catch(() => renderPushSettings()); },
+  'push-test': el => {
+    el.disabled = true; el.textContent = 'Enviando…';
+    pushSync().then(() => pushCall('/test')).then(r => {
+      const ok = (r.envios || []).filter(x => x.estado >= 200 && x.estado < 300).length, total = (r.envios || []).length;
+      toast(total ? `Aviso enviado a ${ok} de ${total} dispositivo${total === 1 ? '' : 's'}` : 'No hay ningún dispositivo con avisos activados');
+    }).catch(() => toast('El servidor de avisos no responde')).then(renderPushSettings);
+  },
   logout: () => { closeSheet(); cloudLogout(); },
   forgot: authForgot,
   reload: () => location.reload(),

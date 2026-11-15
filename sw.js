@@ -1,11 +1,11 @@
 /* Mi Día — permite abrir la app sin conexión.
    Estrategia: siempre se intenta la red primero (así las actualizaciones
    llegan solas) y, si no hay conexión, se usa la última copia guardada. */
-const CACHE = 'midia-v2';
+const CACHE = 'midia-v3';
 const SHELL = [
   './', 'index.html', 'manifest.json', 'icon.svg',
   'styles.css',
-  'config.js', 'store.js', 'views.js', 'sync.js', 'app.js',
+  'config.js', 'store.js', 'views.js', 'sync.js', 'push.js', 'app.js',
   'icon-180.png', 'icon-192.png', 'icon-512.png',
 ];
 
@@ -17,6 +17,25 @@ self.addEventListener('activate', e => {
   e.waitUntil(caches.keys()
     .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
     .then(() => self.clients.claim()));
+});
+
+/* Llega un aviso desde el servidor: mostrarlo como notificación */
+self.addEventListener('push', e => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch (err) { d = { body: e.data ? e.data.text() : '' }; }
+  const options = { body: d.body || '', icon: 'icon-192.png', badge: 'icon-192.png', data: { url: d.url || './' } };
+  if (d.tag) options.tag = d.tag;
+  e.waitUntil(self.registration.showNotification(d.title || 'Mi Día', options));
+});
+
+/* Al tocar la notificación: abrir la app (o traerla al frente si ya está abierta) */
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  const url = (e.notification.data && e.notification.data.url) || './';
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+    const open = list.find(c => 'focus' in c);
+    return open ? open.focus() : self.clients.openWindow(url);
+  }));
 });
 
 self.addEventListener('fetch', e => {

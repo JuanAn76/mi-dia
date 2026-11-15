@@ -63,6 +63,7 @@ function cloudOnUser(user) {
     waiting.delete(name);
     if (!waiting.size && !Cloud.ready) { Cloud.ready = true; fetchMissingCovers(render); }
     render();
+    if (name === 'tasks' && typeof pushSyncSoon === 'function') pushSyncSoon();   // mantener al día los avisos pendientes
   };
   const onError = () => toast('No se pudieron leer tus datos. Revisa la conexión.');
 
@@ -113,6 +114,7 @@ function cloudPush() {
     ops.slice(i, i + 400).forEach(op => op(batch));
     batch.commit().catch(() => toast('No se pudo guardar un cambio. Se reintentará al recuperar la conexión.'));
   }
+  if (typeof pushSyncSoon === 'function') pushSyncSoon();
 }
 
 /* ---------- pantalla de acceso ---------- */
