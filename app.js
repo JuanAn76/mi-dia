@@ -252,7 +252,10 @@ function settingsSheet() {
         : 'Ahora mismo todo se guarda <b>solo en este dispositivo</b>. La sincronización se activa al conectar la app con Firebase.'}</p></div>
     <button class="btn ghost full" data-action="export">Descargar copia de seguridad</button>
     <label class="btn ghost full">Restaurar una copia…<input type="file" id="import-file" accept="application/json,.json" hidden></label>
-    ${cloud ? '<button class="btn ghost full" data-action="logout">Cerrar sesión</button>' : '<button class="btn ghost full" data-action="load-demo">Cargar datos de ejemplo</button>'}
+    ${hasDemo()
+      ? '<button class="btn ghost full" data-action="remove-demo">Borrar solo los datos de ejemplo</button>'
+      : '<button class="btn ghost full" data-action="load-demo">Cargar datos de ejemplo</button>'}
+    ${cloud ? '<button class="btn ghost full" data-action="logout">Cerrar sesión</button>' : ''}
     <button class="btn danger full" data-action="reset">Borrar todo y empezar de cero</button>`;
   openSheet({ title: 'Ajustes', body, cancelLabel: 'Cerrar' });
 }
@@ -335,7 +338,8 @@ const ACTIONS = {
   forgot: authForgot,
   reload: () => location.reload(),
   export: exportData,
-  'load-demo': el => { if (confirmed(el)) { state = demoState(); saveState(); closeSheet(); render(); fetchMissingCovers(render); } },
+  'load-demo': () => { addDemoData(); closeSheet(); render(); fetchMissingCovers(render); toast('Ejemplos añadidos'); },
+  'remove-demo': el => { if (confirmed(el)) { removeDemoData(); closeSheet(); render(); toast('Ejemplos borrados'); } },
   reset: el => { if (confirmed(el)) { state = emptyState(); saveState(); closeSheet(); ui.projectId = null; render(); toast('Listo: la app está vacía'); } },
 };
 

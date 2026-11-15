@@ -98,7 +98,7 @@ function viewHoy() {
   const dateStr = new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
 
   let h = header('Hoy', dateStr.charAt(0).toUpperCase() + dateStr.slice(1));
-  if (state.meta.demo) h += `<div class="banner"><span>Estás viendo <b>datos de ejemplo</b> para probar la app.</span><button class="link" data-action="reset">Empezar de cero</button></div>`;
+  if (hasDemo()) h += `<div class="banner"><span>Hay <b>datos de ejemplo</b> para que veas cómo rellenar la app.</span><button class="link" data-action="remove-demo">Borrar los ejemplos</button></div>`;
 
   if (totalToday) {
     const pct = Math.round(doneToday / totalToday * 100);

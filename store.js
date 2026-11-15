@@ -147,7 +147,7 @@ function toggleTask(id) {
 }
 
 function upsertTask(data) {
-  if (data.id) Object.assign(getTask(data.id), data);
+  if (data.id) delete Object.assign(getTask(data.id), data).demo;   // al editarlo deja de ser un ejemplo
   else state.tasks.push(Object.assign({ id: uid(), status: 'todo', doneAt: null, createdAt: today() }, data, { id: uid() }));
   saveState();
 }
@@ -165,7 +165,7 @@ function sortTasks(list) {
 
 /* ---------- proyectos ---------- */
 function upsertProject(data) {
-  if (data.id) Object.assign(getProject(data.id), data);
+  if (data.id) delete Object.assign(getProject(data.id), data).demo;
   else state.projects.push(Object.assign({ createdAt: today() }, data, { id: uid() }));
   saveState();
 }
@@ -220,7 +220,7 @@ function habitRate(h, n) {
 }
 
 function upsertHabit(data) {
-  if (data.id) Object.assign(getHabit(data.id), data);
+  if (data.id) delete Object.assign(getHabit(data.id), data).demo;
   else state.habits.push(Object.assign({ createdAt: today() }, data, { id: uid() }));
   saveState();
 }
@@ -283,7 +283,7 @@ function setProgress(id, value) {
 
 function upsertItem(data) {
   let it;
-  if (data.id) { it = getItem(data.id); Object.assign(it, data); }
+  if (data.id) { it = getItem(data.id); Object.assign(it, data); delete it.demo; }
   else { it = Object.assign({ createdAt: today(), cover: undefined }, data, { id: uid() }); state.library.push(it); }
   if (it.status === 'doing' && !it.startedAt) it.startedAt = today();
   if (it.status === 'done' && !it.finishedAt) it.finishedAt = today();
@@ -436,5 +436,31 @@ function demoState() {
   L('Curso de IA generativa', 'curso', 'DeepLearning.AI', 'doing', { progress: 9, total: 24 });
   L('Intro to Large Language Models', 'youtube', 'Andrej Karpathy', 'done', { progress: 100, rating: 5, url: 'https://www.youtube.com/watch?v=zjkBMFhNj_g', finishedAt: addDays(t, -6) });
   L('Cómo funcionan los transformers', 'articulo', 'Blog técnico', 'want');
+  DEMO_COLS.forEach(c => s[c].forEach(x => { x.demo = true; }));   // marca de "ejemplo" para poder borrarlos aparte
   return s;
+}
+
+const DEMO_COLS = ['tasks', 'projects', 'habits', 'library'];
+const hasDemo = () => DEMO_COLS.some(c => state[c].some(x => x.demo));
+
+/* Añade los ejemplos a lo que ya haya, sin tocar los datos propios */
+function addDemoData() {
+  const d = demoState();
+  DEMO_COLS.forEach(c => { state[c] = state[c].concat(d[c]); });
+  Object.keys(d.habitLog).forEach(day => { state.habitLog[day] = (state.habitLog[day] || []).concat(d.habitLog[day]); });
+  saveState();
+}
+
+/* Borra solo lo marcado como ejemplo. Lo que se haya editado ya no lleva la marca y se conserva. */
+function removeDemoData() {
+  const habitIds = new Set(state.habits.filter(h => h.demo).map(h => h.id));
+  const projectIds = new Set(state.projects.filter(p => p.demo).map(p => p.id));
+  DEMO_COLS.forEach(c => { state[c] = state[c].filter(x => !x.demo); });
+  state.tasks.forEach(t => { if (projectIds.has(t.projectId)) t.projectId = ''; });
+  Object.keys(state.habitLog).forEach(day => {
+    const left = state.habitLog[day].filter(id => !habitIds.has(id));
+    if (left.length) state.habitLog[day] = left; else delete state.habitLog[day];
+  });
+  state.meta.demo = false;
+  saveState();
 }
