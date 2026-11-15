@@ -7,7 +7,9 @@ const ui = {
   tab: 'hoy',
   taskArea: 'all', taskView: 'pending', projectId: null,
   libType: 'all', libStatus: 'doing',
+  habitRange: '7',          // '7' | '14' | 'month'
 };
+try { const r = localStorage.getItem('midia.habitRange'); if (['7', '14', 'month'].includes(r)) ui.habitRange = r; } catch (e) { /* sin almacenamiento */ }
 
 const TABS = [
   { id: 'hoy',        name: 'Hoy',        icon: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M5 19l1.5-1.5M17.5 6.5L19 5"/>' },
@@ -187,23 +189,59 @@ function viewProject(p) {
 }
 
 /* ---------- HÁBITOS ---------- */
+const MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+
+/* Filas de 7 días (lunes a domingo en la vista de mes; null = hueco fuera del mes) */
+function habitRows(range) {
+  const t = today(), rows = [];
+  if (range === 'month') {
+    const ym = t.slice(0, 7), first = ym + '-01', d0 = parseDay(first);
+    const last = ym + '-' + pad(new Date(d0.getFullYear(), d0.getMonth() + 1, 0).getDate());
+    for (let day = weekStart(first); day <= last;) {
+      const row = [];
+      for (let i = 0; i < 7; i++) { row.push(day.slice(0, 7) === ym ? day : null); day = addDays(day, 1); }
+      rows.push(row);
+    }
+    return rows;
+  }
+  const weeks = range === '14' ? 2 : 1;
+  for (let w = weeks - 1; w >= 0; w--) rows.push(Array.from({ length: 7 }, (_, i) => addDays(t, i - 6 - 7 * w)));
+  return rows;
+}
+
+function habitCell(hb, d, calendar, firstInRow) {
+  if (!d) return '<span class="dot gap"></span>';
+  const t = today(), dt = parseDay(d), num = dt.getDate();
+  const due = habitDue(hb, d), on = habitDone(hb.id, d), future = d > t;
+  const cls = `dot ${on ? 'on' : ''} ${due ? '' : 'off'} ${d === t ? 'today' : ''} ${future ? 'future' : ''} ${calendar ? 'cal' : ''}`;
+  const attrs = future ? 'disabled' : `data-action="toggle-habit" data-id="${hb.id}" data-date="${d}" aria-pressed="${on}"`;
+  const label = `${esc(hb.name)}, ${dt.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })}`;
+  if (calendar) return `<button class="${cls}" ${attrs} aria-label="${label}"><i>${num}</i></button>`;
+  const wl = WEEKDAYS.find(w => w.n === dt.getDay()).l;
+  return `<button class="${cls}" ${attrs} aria-label="${label}">
+    <small class="mo ${firstInRow || num === 1 ? '' : 'ghost'}">${MONTHS[dt.getMonth()]}</small><b>${num}</b><small>${wl}</small><i></i></button>`;
+}
+
 function viewHabitos() {
   const t = today();
-  const days = Array.from({ length: 7 }, (_, i) => addDays(t, i - 6));
+  const calendar = ui.habitRange === 'month';
+  const rows = habitRows(ui.habitRange);
+  const monthName = new Date().toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
   let h = header('Hábitos', state.habits.length ? `${state.habits.filter(x => habitDone(x.id, t)).length} de ${state.habits.filter(x => habitDue(x, t)).length} hechos hoy` : '');
   if (!state.habits.length) return h + empty('🔥', 'Crea tu primer hábito con el botón +. Por ejemplo «Leer 20 minutos».');
+  h += segmented([['7', '7 días'], ['14', '2 semanas'], ['month', 'Mes']], ui.habitRange, 'habit-range');
+  if (calendar) h += `<div class="block-head"><h2>${monthName.charAt(0).toUpperCase() + monthName.slice(1)}</h2></div>`;
   h += `<div class="block"><ul class="card list">${state.habits.map(hb => {
     const c = area(hb.area).color, st = habitStreak(hb);
-    return `<li class="row habit" style="--c:${c}">
+    return `<li class="row habit r-${ui.habitRange}" style="--c:${c}">
       <button class="row-main" data-action="open-habit" data-id="${hb.id}">
         <span class="row-title">${hb.icon} ${esc(hb.name)}</span>
         <span class="row-meta"><span>${st ? `🔥 ${st} día${st > 1 ? 's' : ''}` : 'Sin racha'}</span><span>${habitRate(hb, 30)}% en 30 días</span>${(hb.autoTypes || []).length ? '<span title="Se marca solo al avanzar en la Biblioteca">⚡ automático</span>' : ''}</span>
       </button>
-      <div class="week">${days.map(d => {
-        const due = habitDue(hb, d), on = habitDone(hb.id, d);
-        const wl = WEEKDAYS.find(w => w.n === parseDay(d).getDay()).l;
-        return `<button class="dot ${on ? 'on' : ''} ${due ? '' : 'off'} ${d === t ? 'today' : ''}" data-action="toggle-habit" data-id="${hb.id}" data-date="${d}" aria-pressed="${on}" aria-label="${esc(hb.name)}, ${fmtDue(d)}"><small>${wl}</small><i></i></button>`;
-      }).join('')}</div>
+      <div class="weeks">
+        ${calendar ? `<div class="week head" aria-hidden="true">${WEEKDAYS.map(w => `<small>${w.l}</small>`).join('')}</div>` : ''}
+        ${rows.map(row => `<div class="week">${row.map((d, i) => habitCell(hb, d, calendar, i === 0)).join('')}</div>`).join('')}
+      </div>
     </li>`;
   }).join('')}</ul></div>`;
   return h;

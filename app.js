@@ -176,6 +176,14 @@ function libSheet(id) {
   const unit = libType(it.type).unit;
   const body = `<form id="f-lib" data-id="${id || ''}" autocomplete="off">
     <input class="title-input" name="title" value="${esc(it.title)}" placeholder="Título" required ${id ? '' : 'data-autofocus'} aria-label="Título">
+    <div class="cover-pick">
+      <div id="cover-preview">${cover(it, 'big')}</div>
+      <div class="cover-actions">
+        <label class="btn ghost small">📷 Elegir mi foto…<input type="file" id="cover-file" accept="image/*" hidden></label>
+        <button type="button" class="btn ghost small" data-action="cover-auto">🔍 Buscar automática</button>
+      </div>
+      <input type="hidden" name="coverMode" value="keep"><input type="hidden" name="coverData" value="">
+    </div>
     <div class="group">
       ${field('Tipo', `<select name="type">${LIB_TYPES.map(t => `<option value="${t.id}" data-unit="${t.unit || ''}" ${t.id === it.type ? 'selected' : ''}>${t.icon} ${t.name}</option>`).join('')}</select>`)}
       ${field('Autor / creador', `<input name="creator" value="${esc(it.creator || '')}" placeholder="Opcional">`)}
@@ -209,11 +217,43 @@ function saveLib(form) {
     rating: parseInt(f.get('rating'), 10) || 0, url: f.get('url').trim(), notes: f.get('notes').trim(),
   };
   if (!data.title) return;
-  if (!prev || prev.title !== data.title || prev.type !== data.type || prev.url !== data.url) data.cover = undefined; // buscar portada de nuevo
+  const coverMode = f.get('coverMode');
+  if (coverMode === 'custom') { data.cover = f.get('coverData'); data.coverCustom = true; }            // foto elegida por ti
+  else if (coverMode === 'auto') { data.cover = undefined; data.coverCustom = false; }                  // volver a buscarla
+  else if (!(prev && prev.coverCustom) && (!prev || prev.title !== data.title || prev.type !== data.type || prev.url !== data.url)) data.cover = undefined; // cambió el título: buscar de nuevo
   const it = upsertItem(data);
   if (prev && data.progress > (prev.progress || 0) && it.status === 'doing') notifyMarked(setProgress(it.id, data.progress));
   closeSheet(); render();
   fetchMissingCovers(render);
+}
+
+/* Reduce la foto elegida (máx. 400 px) para que ocupe poco y se sincronice rápido */
+function resizeImage(file, max = 400) {
+  return new Promise((ok, ko) => {
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      const g = c.getContext('2d');
+      g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+      g.drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      ok(c.toDataURL('image/jpeg', 0.82));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); ko(new Error('imagen no válida')); };
+    img.src = url;
+  });
+}
+
+function setCoverChoice(mode, dataUrl) {
+  const form = $('#f-lib');
+  form.coverMode.value = mode;
+  form.coverData.value = dataUrl || '';
+  const wide = ['youtube', 'podcast'].includes(form.type.value) ? 'wide' : '';
+  $('#cover-preview').innerHTML = dataUrl
+    ? `<div class="cover big ${wide}"><img src="${dataUrl}" alt="Foto elegida"></div>`
+    : `<div class="cover big ${wide}"><span>${libType(form.type.value).icon}</span></div><p class="muted center">Se buscará una portada al guardar</p>`;
 }
 
 function progressSheet(id) {
@@ -325,6 +365,8 @@ const ACTIONS = {
   'open-lib': el => libSheet(el.dataset.id),
   'delete-lib': el => { if (confirmed(el)) { deleteItem(el.dataset.id); closeSheet(); render(); } },
   'lib-progress': el => progressSheet(el.dataset.id),
+  'cover-auto': () => setCoverChoice('auto', ''),
+  'habit-range': el => { ui.habitRange = el.dataset.view; try { localStorage.setItem('midia.habitRange', ui.habitRange); } catch (e) { /* sin almacenamiento */ } render(); },
   'progress-step': el => { const inp = $('#f-progress [name=progress]'); inp.value = (parseInt(inp.value, 10) || 0) + Number(el.dataset.step); },
   'progress-finish': el => {
     const it = getItem(el.dataset.id), unit = libType(it.type).unit;
@@ -393,6 +435,9 @@ document.addEventListener('change', e => {
     $('#progress-group').hidden = !unit;
     $('#unit-label').textContent = `(${unit})`;
     $('.field.total').classList.toggle('hidden', unit === '%');
+  }
+  if (el.id === 'cover-file' && el.files[0]) {
+    resizeImage(el.files[0]).then(url => setCoverChoice('custom', url)).catch(() => toast('No se pudo leer esa imagen. Prueba con un JPG o PNG.'));
   }
   if (el.id === 'import-file' && el.files[0]) {
     el.files[0].text().then(txt => {
