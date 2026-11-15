@@ -290,6 +290,7 @@ function settingsSheet() {
       <p class="muted">${cloud
         ? `Sesión iniciada como <b>${esc(Cloud.user.email)}</b>. Tus datos se sincronizan entre todos los dispositivos donde entres con esta cuenta, y también se guardan sin conexión.`
         : 'Ahora mismo todo se guarda <b>solo en este dispositivo</b>. La sincronización se activa al conectar la app con Firebase.'}</p></div>
+    <div class="group pad"><span class="group-title">Diagnóstico</span><div id="diag" class="stat-rows"><p class="muted">Comprobando…</p></div></div>
     <button class="btn ghost full" data-action="export">Descargar copia de seguridad</button>
     <label class="btn ghost full">Restaurar una copia…<input type="file" id="import-file" accept="application/json,.json" hidden></label>
     ${hasDemo()
@@ -298,6 +299,39 @@ function settingsSheet() {
     ${cloud ? '<button class="btn ghost full" data-action="logout">Cerrar sesión</button>' : ''}
     <button class="btn danger full" data-action="reset">Borrar todo y empezar de cero</button>`;
   openSheet({ title: 'Ajustes', body, cancelLabel: 'Cerrar' });
+  runDiagnostics();
+}
+
+/* Compara lo que hay en este dispositivo con lo que hay de verdad en la nube */
+const APP_VERSION = 'v6 · 15 nov';
+async function runDiagnostics() {
+  const show = (rows, verdict) => {
+    const el = $('#diag');
+    if (el) el.innerHTML = rows.map(([k, v]) => `<div class="stat-row"><span>${k}</span><b>${v}</b></div>`).join('') + (verdict ? `<p class="diag-verdict">${verdict}</p>` : '');
+  };
+  const summary = (t, h, l) => `${t} tareas · ${h} hábitos · ${l} biblioteca`;
+  const rows = [['Versión', APP_VERSION]];
+  if (!(Cloud.enabled && Cloud.user)) {
+    show(rows.concat([['Modo', 'Solo este dispositivo'], ['Aquí', summary(state.tasks.length, state.habits.length, state.library.length)]]));
+    return;
+  }
+  rows.push(['Cuenta', esc(Cloud.user.email)], ['Código de cuenta', Cloud.user.uid.slice(-4)],
+    ['En este dispositivo', summary(state.tasks.length, state.habits.length, state.library.length)]);
+  show(rows.concat([['En la nube', 'comprobando…']]));
+  const root = Cloud.db.collection('users').doc(Cloud.user.uid);
+  const limit = (p, ms) => Promise.race([p, new Promise((_, ko) => setTimeout(() => ko(new Error('tiempo agotado')), ms))]);
+  try {
+    const n = {};
+    for (const c of ['tasks', 'habits', 'library']) n[c] = (await limit(root.collection(c).get({ source: 'server' }), 8000)).size;
+    let pending = 0;
+    for (const c of CLOUD_COLS.concat('habitLog')) pending += (await root.collection(c).get({ source: 'cache' })).docs.filter(d => d.metadata.hasPendingWrites).length;
+    const same = n.tasks === state.tasks.length && n.habits === state.habits.length && n.library === state.library.length;
+    show(rows.concat([['En la nube', summary(n.tasks, n.habits, n.library)], ['Cambios sin subir', pending]]),
+      pending ? '⚠️ Este dispositivo tiene cambios que aún no han llegado a la nube.'
+        : same ? '✅ Todo sincronizado.' : '⚠️ Lo que se ve aquí no coincide con la nube.');
+  } catch (e) {
+    show(rows.concat([['En la nube', 'sin respuesta']]), '⚠️ Este dispositivo no consigue conectar con la nube. Lo que ves es la copia guardada aquí.');
+  }
 }
 
 function exportData() {

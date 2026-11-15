@@ -173,6 +173,10 @@ h2 { font-size: 20px; font-weight: 700; letter-spacing: -.01em; }
   .row.habit.r-7 .weeks { flex: none; width: 300px; padding: 0; }
 }
 
+.diag-verdict { font-size: 14.500px; font-weight: 600; margin-top: 2px; }
+#diag .stat-row { font-size: 14.500px; }
+#diag .stat-row b { text-align: right; overflow-wrap: anywhere; }
+
 /* ---------- foto de portada en el formulario ---------- */
 .cover-pick { text-align: center; margin-bottom: 14px; }
 .cover-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
