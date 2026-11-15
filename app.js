@@ -72,6 +72,7 @@ const subRow = (s = {}) => `<div class="sub" data-id="${s.id || ''}">
 function taskSheet(id, preset = {}) {
   const t = id ? getTask(id) : Object.assign({
     title: '', area: ui.lastArea || 'casa', projectId: '', due: '', time: '', remind: 'none',
+    remindAt: '', remindEvery: 0, remindTimes: 3,
     priority: 'media', repeat: { type: 'none', every: 1 }, subtasks: [], notes: '',
   }, preset);
   const body = `<form id="f-task" data-id="${id || ''}" autocomplete="off">
@@ -82,6 +83,9 @@ function taskSheet(id, preset = {}) {
       ${field('Fecha', `<input type="date" name="due" value="${t.due || ''}">`)}
       ${field('Hora', `<input type="time" name="time" value="${t.time || ''}">`)}
       ${field('Aviso 🔔', `<select name="remind">${options(REMIND, t.remind || 'none')}</select>`)}
+      ${field('Día y hora del aviso', `<input type="datetime-local" name="remindAt" value="${esc(t.remindAt || '')}">`, `remind-at ${t.remind === 'custom' ? '' : 'hidden'}`)}
+      ${field('Repetir aviso', `<select name="remindEvery">${options(NAG_EVERY, String(t.remindEvery || 0))}</select>`, `nag ${t.remind && t.remind !== 'none' ? '' : 'hidden'}`)}
+      ${field('Avisar en total', `<select name="remindTimes">${options(NAG_TIMES, t.remindTimes === undefined ? '3' : String(t.remindTimes))}</select>`, `nag-times ${t.remind && t.remind !== 'none' && t.remindEvery ? '' : 'hidden'}`)}
     </div>
     <div class="group">
       ${field('Prioridad', `<select name="priority">${options([{ id: 'alta', name: 'Alta' }, { id: 'media', name: 'Media' }, { id: 'baja', name: 'Baja' }], t.priority)}</select>`)}
@@ -104,19 +108,32 @@ function saveTask(form) {
   const data = {
     id: form.dataset.id, title: f.get('title').trim(), area: f.get('area') || 'casa', projectId: f.get('projectId'),
     due: f.get('due'), time: f.get('time'), remind: f.get('remind'), priority: f.get('priority'),
+    remindAt: f.get('remindAt') || '', remindEvery: parseInt(f.get('remindEvery'), 10) || 0, remindTimes: parseInt(f.get('remindTimes'), 10) || 0,
     repeat: { type: f.get('repeat'), every: Math.max(1, parseInt(f.get('every'), 10) || 1) },
     subtasks: $$('.sub', form).map(r => ({ id: r.dataset.id || uid(), title: $('input[type=text]', r).value.trim(), done: $('input[type=checkbox]', r).checked })).filter(s => s.title),
     notes: f.get('notes').trim(),
   };
   if (!data.title) return;
-  if (data.remind !== 'none') {              // un aviso necesita fecha y hora
+  if (data.remind === 'custom') {            // aviso con día y hora propios
+    if (!data.remindAt) data.remindAt = defaultRemindAt(data);
+    if (new Date(data.remindAt).getTime() < Date.now() - 60000) toast('Ojo: la hora del aviso ya ha pasado');
+  } else if (data.remind !== 'none') {       // aviso relativo: necesita fecha y hora de la tarea
     if (!data.due) data.due = today();
     if (!data.time) data.time = '09:00';
   }
+  if (data.remind === 'none') data.remindEvery = 0;
   if (data.repeat.type !== 'none' && !data.due) data.due = today();
   ui.lastArea = data.area;
   upsertTask(data);
   closeSheet(); render();
+}
+
+/* Propuesta para "Día y hora concretos": la fecha y hora de la tarea, o la próxima hora en punto */
+function defaultRemindAt(t) {
+  if (t.due && t.time) return `${t.due}T${t.time}`;
+  const d = new Date(Date.now() + 3600e3);
+  if (t.due) return `${t.due}T09:00`;
+  return `${iso(d)}T${pad(d.getHours())}:00`;
 }
 
 /* ---------- proyecto ---------- */
@@ -305,7 +322,7 @@ function settingsSheet() {
 }
 
 /* Compara lo que hay en este dispositivo con lo que hay de verdad en la nube */
-const APP_VERSION = 'v7 · avisos';
+const APP_VERSION = 'v8 · avisos+';
 async function runDiagnostics() {
   const show = (rows, verdict) => {
     const el = $('#diag');
@@ -474,6 +491,14 @@ document.addEventListener('submit', e => {
 document.addEventListener('change', e => {
   const el = e.target;
   if (el.name === 'repeat') $('.field.every').classList.toggle('hidden', el.value === 'none');
+  if (el.name === 'remind' && el.form && el.form.id === 'f-task') {
+    const form = el.form, every = form.remindEvery.value;
+    $('.field.remind-at').classList.toggle('hidden', el.value !== 'custom');
+    $('.field.nag').classList.toggle('hidden', el.value === 'none');
+    $('.field.nag-times').classList.toggle('hidden', el.value === 'none' || every === '0');
+    if (el.value === 'custom' && !form.remindAt.value) form.remindAt.value = defaultRemindAt({ due: form.due.value, time: form.time.value });
+  }
+  if (el.name === 'remindEvery') $('.field.nag-times').classList.toggle('hidden', el.value === '0');
   if (el.name === 'projectId' && el.value) {                 // al elegir proyecto, se propone su área
     const a = el.selectedOptions[0].dataset.area;
     const r = $(`#f-task input[name=area][value="${a}"]`);

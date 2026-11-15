@@ -51,7 +51,12 @@ function taskRow(t, opts = {}) {
   if (p && !opts.hideProject) meta.push(`<span>📁 ${esc(p.name)}</span>`);
   if (t.subtasks && t.subtasks.length) meta.push(`<span>☑ ${t.subtasks.filter(s => s.done).length}/${t.subtasks.length}</span>`);
   if (t.repeat && t.repeat.type !== 'none') meta.push('<span title="Se repite">↻</span>');
-  if (t.remind && t.remind !== 'none') meta.push('<span title="Con aviso">🔔</span>');
+  if (t.remind && t.remind !== 'none') {
+    let bell = '🔔';
+    if (t.remind === 'custom' && t.remindAt) bell += ` ${fmtDue(t.remindAt.slice(0, 10))} ${t.remindAt.slice(11, 16)}`;
+    if (t.remindEvery) bell += ` · cada ${t.remindEvery} min`;
+    meta.push(`<span title="Con aviso">${bell}</span>`);
+  }
   return `<li class="row task ${done ? 'done' : ''}">
     <button class="check ${done ? 'on' : ''}" style="--c:${a.color}" data-action="toggle-task" data-id="${t.id}" aria-label="${done ? 'Marcar como pendiente' : 'Completar'}: ${esc(t.title)}"></button>
     <button class="row-main" data-action="open-task" data-id="${t.id}">

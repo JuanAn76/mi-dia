@@ -16,27 +16,43 @@ const REMIND_MINUTES = { at: 0, 10: 10, 60: 60, '1d': 1440 };
 
 /* Momento exacto (en este dispositivo) en que debe sonar el aviso de una tarea */
 function reminderTime(t) {
-  if (!t.remind || t.remind === 'none' || !t.due || !t.time) return null;
+  if (!t.remind || t.remind === 'none') return null;
+  if (t.remind === 'custom') {                       // día y hora concretos
+    if (!t.remindAt) return null;
+    const [day, hm] = t.remindAt.split('T');
+    const [h, m] = (hm || '09:00').split(':').map(Number);
+    const d = parseDay(day);
+    d.setHours(h, m, 0, 0);
+    return d.getTime();
+  }
+  if (!t.due || !t.time) return null;
   const [h, m] = t.time.split(':').map(Number);
   const d = parseDay(t.due);
   d.setHours(h, m, 0, 0);
   return d.getTime() - (REMIND_MINUTES[t.remind] || 0) * 60000;
 }
 
-/* Avisos pendientes: tareas sin hacer cuyo aviso aún no ha pasado (con 10 min de margen) */
+/* Avisos pendientes: tareas sin hacer cuyo aviso aún no ha pasado (con 10 min de margen).
+   Si el aviso se repite, cada repetición es un aviso aparte (id "tarea#n"). Al completar la
+   tarea desaparecen de la lista y el servidor borra los que no hayan sonado. */
 function reminderList() {
-  const now = Date.now();
-  return state.tasks
-    .filter(t => t.status !== 'done')
-    .map(t => {
-      const at = reminderTime(t);
-      if (at === null || at < now - 10 * 60000) return null;
-      const day = parseDay(t.due).toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' }).replace(/\./g, '');
-      return { id: t.id, at, title: t.title, body: `${t.time} · ${day} · ${area(t.area).short}` };
-    })
-    .filter(Boolean)
-    .sort((a, b) => a.at - b.at)
-    .slice(0, 300);
+  const now = Date.now(), out = [];
+  state.tasks.filter(t => t.status !== 'done').forEach(t => {
+    const first = reminderTime(t);
+    if (first === null) return;
+    const every = t.remindEvery || 0;
+    const total = every ? (t.remindTimes || NAG_MAX) : 1;
+    const parts = [];
+    if (t.due) parts.push(parseDay(t.due).toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' }).replace(/\./g, '') + (t.time ? ' ' + t.time : ''));
+    parts.push(area(t.area).short);
+    for (let i = 0; i < total; i++) {
+      const at = first + i * every * 60000;
+      if (at < now - 10 * 60000) continue;
+      const extra = total === 1 ? '' : t.remindTimes ? ` · aviso ${i + 1} de ${total}` : ` · aviso ${i + 1} (hasta completarla)`;
+      out.push({ id: total === 1 ? t.id : `${t.id}#${i + 1}`, at, title: t.title, body: parts.join(' · ') + extra });
+    }
+  });
+  return out.sort((a, b) => a.at - b.at).slice(0, 300);
 }
 
 async function pushCall(path, body) {

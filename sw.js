@@ -1,7 +1,7 @@
 /* Mi Día — permite abrir la app sin conexión.
    Estrategia: siempre se intenta la red primero (así las actualizaciones
    llegan solas) y, si no hay conexión, se usa la última copia guardada. */
-const CACHE = 'midia-v3';
+const CACHE = 'midia-v4';
 const SHELL = [
   './', 'index.html', 'manifest.json', 'icon.svg',
   'styles.css',

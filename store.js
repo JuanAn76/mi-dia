@@ -37,7 +37,19 @@ const REMIND = [
   { id: '10',   name: '10 min antes' },
   { id: '60',   name: '1 hora antes' },
   { id: '1d',   name: '1 día antes' },
+  { id: 'custom', name: 'Día y hora concretos' },
 ];
+
+/* Repetir el aviso: cada cuántos minutos y cuántas veces en total (0 = hasta completar la tarea) */
+const NAG_EVERY = [
+  { id: '0', name: 'No' }, { id: '5', name: 'Cada 5 min' }, { id: '10', name: 'Cada 10 min' },
+  { id: '15', name: 'Cada 15 min' }, { id: '30', name: 'Cada 30 min' }, { id: '60', name: 'Cada hora' },
+];
+const NAG_TIMES = [
+  { id: '2', name: '2 veces' }, { id: '3', name: '3 veces' }, { id: '5', name: '5 veces' },
+  { id: '10', name: '10 veces' }, { id: '0', name: 'Hasta completarla' },
+];
+const NAG_MAX = 24;   // tope de avisos cuando es "hasta completarla"
 
 const REPEAT = [
   { id: 'none',    name: 'No se repite' },
@@ -131,6 +143,11 @@ function toggleTask(id) {
         due: nextDue(t),
         subtasks: (t.subtasks || []).map(s => ({ id: uid(), title: s.title, done: false })),
       });
+      /* Si el aviso tenía día y hora concretos, se mueve los mismos días que la tarea */
+      if (t.remind === 'custom' && t.remindAt && t.due && copy.due) {
+        const shift = Math.round((parseDay(copy.due) - parseDay(t.due)) / 86400000);
+        copy.remindAt = addDays(t.remindAt.slice(0, 10), shift) + t.remindAt.slice(10);
+      }
       t.spawnedId = copy.id;
       state.tasks.push(copy);
     }
