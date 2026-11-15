@@ -1,12 +1,12 @@
 /* Mi Día — permite abrir la app sin conexión.
    Estrategia: siempre se intenta la red primero (así las actualizaciones
    llegan solas) y, si no hay conexión, se usa la última copia guardada. */
-const CACHE = 'midia-v1';
+const CACHE = 'midia-v2';
 const SHELL = [
   './', 'index.html', 'manifest.json', 'icon.svg',
-  'css/styles.css',
-  'js/config.js', 'js/store.js', 'js/views.js', 'js/sync.js', 'js/app.js',
-  'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png',
+  'styles.css',
+  'config.js', 'store.js', 'views.js', 'sync.js', 'app.js',
+  'icon-180.png', 'icon-192.png', 'icon-512.png',
 ];
 
 self.addEventListener('install', e => {
