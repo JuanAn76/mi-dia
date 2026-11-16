@@ -200,9 +200,35 @@ function projectProgress(id) {
 /* ---------- hábitos ---------- */
 const getHabit = id => state.habits.find(h => h.id === id);
 const habitDone = (id, day) => (state.habitLog[day] || []).includes(id);
-const habitDue = (h, day) => day >= (h.createdAt || '0000') && (h.days || [0, 1, 2, 3, 4, 5, 6]).includes(parseDay(day).getDay());
+/* Un hábito "toca" un día si ya existía, no estaba archivado y es uno de sus días de la semana */
+const habitDue = (h, day) => day >= (h.createdAt || '0000') && (!h.archivedAt || day <= h.archivedAt)
+  && (h.days || [0, 1, 2, 3, 4, 5, 6]).includes(parseDay(day).getDay());
+const activeHabits = () => state.habits.filter(h => !h.archived);
+
+/* Archivar: deja de aparecer en el día a día, pero se conserva todo su historial */
+function archiveHabit(id, on) {
+  const h = getHabit(id);
+  if (!h) return;
+  if (on) { h.archived = true; h.archivedAt = today(); }
+  else { delete h.archived; delete h.archivedAt; }
+  saveState();
+}
+
+/* Mejor racha de toda la historia del hábito */
+function habitBestStreak(h) {
+  let best = 0, run = 0, day = h.createdAt || today(), guard = 0;
+  const end = today();
+  while (day <= end && guard++ < 4000) {
+    if (habitDone(h.id, day)) { run++; best = Math.max(best, run); }
+    else if (habitDue(h, day) && day !== end) run = 0;
+    day = addDays(day, 1);
+  }
+  return best;
+}
 
 function setHabit(id, day, on) {
+  const h = getHabit(id);
+  if (on && h && day < (h.createdAt || '0000')) h.createdAt = day;   // apuntar días antiguos amplía el historial
   const list = state.habitLog[day] || [];
   const has = list.includes(id);
   if (on && !has) list.push(id);
@@ -272,7 +298,7 @@ function itemProgressLabel(it) {
 /* Al avanzar en algo, se marcan solos los hábitos enlazados a ese tipo */
 function autoMarkHabits(type) {
   const marked = [];
-  state.habits.forEach(h => {
+  activeHabits().forEach(h => {
     if ((h.autoTypes || []).includes(type) && !habitDone(h.id, today())) {
       setHabit(h.id, today(), true);
       marked.push(h);

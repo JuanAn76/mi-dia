@@ -163,7 +163,8 @@ function habitSheet(id) {
       `<label class="pick-item"><input type="checkbox" name="days" value="${w.n}" ${h.days.includes(w.n) ? 'checked' : ''}><span>${w.l}</span></label>`).join('')}</fieldset>
     <fieldset class="pick"><legend>⚡ Marcar solo al apuntar avance en…</legend>${LIB_TYPES.filter(t => t.unit).map(t =>
       `<label class="pick-item"><input type="checkbox" name="autoTypes" value="${t.id}" ${(h.autoTypes || []).includes(t.id) ? 'checked' : ''}><span>${t.icon} ${t.plural}</span></label>`).join('')}</fieldset>
-    ${id ? deleteBtn('delete-habit', id, 'Eliminar hábito y su historial') : ''}
+    ${id ? `<button type="button" class="btn ghost full" data-action="archive-habit" data-id="${id}">${h.archived ? '↩︎ Recuperar hábito' : '🗄 Archivar (conserva el historial)'}</button>
+      ${deleteBtn('delete-habit', id, 'Eliminar hábito y TODO su historial')}` : ''}
   </form>`;
   openSheet({ title: id ? 'Editar hábito' : 'Nuevo hábito', body, formId: 'f-habit' });
 }
@@ -172,15 +173,19 @@ function habitDetail(id) {
   const h = getHabit(id);
   const st = habitStreak(h);
   const total = Object.values(state.habitLog).filter(l => l.includes(id)).length;
+  const since = h.createdAt ? parseDay(h.createdAt).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
   const body = `<div class="detail-head"><div class="big-ico">${h.icon}</div><h2>${esc(h.name)}</h2>
-      <p class="muted">${area(h.area).icon} ${area(h.area).name}${(h.autoTypes || []).length ? ' · ⚡ ' + h.autoTypes.map(x => libType(x).plural).join(', ') : ''}</p></div>
+      <p class="muted">${area(h.area).icon} ${area(h.area).name}${(h.autoTypes || []).length ? ' · ⚡ ' + h.autoTypes.map(x => libType(x).plural).join(', ') : ''}</p>
+      ${h.archived ? `<p class="muted"><b>🗄 Archivado ${fmtDue(h.archivedAt).toLowerCase()}</b></p>` : ''}</div>
     <div class="tiles three">
       <div class="card tile"><b>${st ? '🔥 ' + st : '—'}</b><span>racha actual</span></div>
       <div class="card tile"><b>${habitRate(h, 30)}%</b><span>últimos 30 días</span></div>
-      <div class="card tile"><b>${total}</b><span>veces en total</span></div>
+      <div class="card tile"><b>${habitRate(h, 365)}%</b><span>último año</span></div>
     </div>
-    <div class="card pad"><span class="group-title">Últimas 16 semanas</span>${heatmap(h)}
-      <p class="muted legend"><i class="lg on" style="--c:${area(h.area).color}"></i> hecho <i class="lg miss"></i> tocaba y no se hizo</p></div>`;
+    <p class="muted center detail-stats">${total} veces en total · mejor racha ${habitBestStreak(h)} días${since ? ` · desde el ${since}` : ''}</p>
+    <div class="card pad"><span class="group-title">Últimos 12 meses</span>${yearGrid(h)}
+      <p class="muted legend"><i class="lg on" style="--c:${area(h.area).color}"></i> hecho <i class="lg miss"></i> tocaba y no se hizo</p></div>
+    ${h.archived ? `<button class="btn ghost full" data-action="archive-habit" data-id="${id}">↩︎ Recuperar hábito</button>` : ''}`;
   openSheet({ title: 'Hábito', body, cancelLabel: 'Cerrar', rightAction: { action: 'edit-habit', id, label: 'Editar' } });
 }
 
@@ -322,7 +327,7 @@ function settingsSheet() {
 }
 
 /* Compara lo que hay en este dispositivo con lo que hay de verdad en la nube */
-const APP_VERSION = 'v8 · avisos+';
+const APP_VERSION = 'v9 · año';
 async function runDiagnostics() {
   const show = (rows, verdict) => {
     const el = $('#diag');
@@ -419,7 +424,13 @@ const ACTIONS = {
   'delete-lib': el => { if (confirmed(el)) { deleteItem(el.dataset.id); closeSheet(); render(); } },
   'lib-progress': el => progressSheet(el.dataset.id),
   'cover-auto': () => setCoverChoice('auto', ''),
-  'habit-range': el => { ui.habitRange = el.dataset.view; try { localStorage.setItem('midia.habitRange', ui.habitRange); } catch (e) { /* sin almacenamiento */ } render(); },
+  'habit-month': el => { ui.habitMonthOff = Math.max(0, (ui.habitMonthOff || 0) + Number(el.dataset.step)); render(); },
+  'archive-habit': el => {
+    const h = getHabit(el.dataset.id), on = !h.archived;
+    archiveHabit(h.id, on); closeSheet(); render();
+    toast(on ? `🗄 «${h.name}» archivado. Su historial se conserva.` : `↩︎ «${h.name}» vuelve a estar activo`);
+  },
+  'habit-range': el => { ui.habitRange = el.dataset.view; ui.habitMonthOff = 0; try { localStorage.setItem('midia.habitRange', ui.habitRange); } catch (e) { /* sin almacenamiento */ } render(); },
   'progress-step': el => { const inp = $('#f-progress [name=progress]'); inp.value = (parseInt(inp.value, 10) || 0) + Number(el.dataset.step); },
   'progress-finish': el => {
     const it = getItem(el.dataset.id), unit = libType(it.type).unit;

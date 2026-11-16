@@ -9,7 +9,8 @@ const ui = {
   libType: 'all', libStatus: 'doing',
   habitRange: '7',          // '7' | '14' | 'month'
 };
-try { const r = localStorage.getItem('midia.habitRange'); if (['7', '14', 'month'].includes(r)) ui.habitRange = r; } catch (e) { /* sin almacenamiento */ }
+ui.habitMonthOff = 0;     // vista Mes: cuántos meses hacia atrás
+try { const r = localStorage.getItem('midia.habitRange'); if (['7', '14', 'month', 'year'].includes(r)) ui.habitRange = r; } catch (e) { /* sin almacenamiento */ }
 
 const TABS = [
   { id: 'hoy',        name: 'Hoy',        icon: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M5 19l1.5-1.5M17.5 6.5L19 5"/>' },
@@ -98,7 +99,7 @@ function viewHoy() {
   const open = state.tasks.filter(x => x.status !== 'done');
   const late = sortTasks(open.filter(x => x.due && x.due < t));
   const todays = sortTasks(state.tasks.filter(x => x.due === t && (x.status !== 'done' || x.doneAt === t)));
-  const habits = state.habits.filter(h => habitDue(h, t));
+  const habits = activeHabits().filter(h => habitDue(h, t));
   const doing = state.library.filter(i => i.status === 'doing');
   const doneToday = todays.filter(x => x.status === 'done').length + habits.filter(h => habitDone(h.id, t)).length;
   const totalToday = todays.length + habits.length;
@@ -196,11 +197,14 @@ function viewProject(p) {
 /* ---------- HÁBITOS ---------- */
 const MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 
+/* Primer día del mes visible en la vista Mes (0 = mes actual, 1 = el anterior…) */
+const shownMonthStart = () => addMonths(today().slice(0, 7) + '-01', -(ui.habitMonthOff || 0));
+
 /* Filas de 7 días (lunes a domingo en la vista de mes; null = hueco fuera del mes) */
 function habitRows(range) {
   const t = today(), rows = [];
   if (range === 'month') {
-    const ym = t.slice(0, 7), first = ym + '-01', d0 = parseDay(first);
+    const first = shownMonthStart(), ym = first.slice(0, 7), d0 = parseDay(first);
     const last = ym + '-' + pad(new Date(d0.getFullYear(), d0.getMonth() + 1, 0).getDate());
     for (let day = weekStart(first); day <= last;) {
       const row = [];
@@ -229,38 +233,81 @@ function habitCell(hb, d, calendar, firstInRow) {
 
 function viewHabitos() {
   const t = today();
-  const calendar = ui.habitRange === 'month';
-  const rows = habitRows(ui.habitRange);
-  const monthName = new Date().toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
-  let h = header('Hábitos', state.habits.length ? `${state.habits.filter(x => habitDone(x.id, t)).length} de ${state.habits.filter(x => habitDue(x, t)).length} hechos hoy` : '');
+  const range = ui.habitRange, calendar = range === 'month', year = range === 'year';
+  const rows = calendar || range === '7' || range === '14' ? habitRows(range) : [];
+  const active = activeHabits(), archived = state.habits.filter(x => x.archived);
+  let h = header('Hábitos', active.length ? `${active.filter(x => habitDone(x.id, t)).length} de ${active.filter(x => habitDue(x, t)).length} hechos hoy` : '');
   if (!state.habits.length) return h + empty('🔥', 'Crea tu primer hábito con el botón +. Por ejemplo «Leer 20 minutos».');
-  h += segmented([['7', '7 días'], ['14', '2 semanas'], ['month', 'Mes']], ui.habitRange, 'habit-range');
-  if (calendar) h += `<div class="block-head"><h2>${monthName.charAt(0).toUpperCase() + monthName.slice(1)}</h2></div>`;
-  h += `<div class="block"><ul class="card list">${state.habits.map(hb => {
-    const c = area(hb.area).color, st = habitStreak(hb);
-    return `<li class="row habit r-${ui.habitRange}" style="--c:${c}">
-      <button class="row-main" data-action="open-habit" data-id="${hb.id}">
+  h += segmented([['7', '7 días'], ['14', '2 semanas'], ['month', 'Mes'], ['year', 'Año']], range, 'habit-range');
+
+  if (calendar) {
+    const name = parseDay(shownMonthStart()).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
+    const off = ui.habitMonthOff || 0;
+    h += `<div class="month-nav">
+      <button class="icon-btn" data-action="habit-month" data-step="1" aria-label="Mes anterior">‹</button>
+      <h2>${name.charAt(0).toUpperCase() + name.slice(1)}</h2>
+      <button class="icon-btn" data-action="habit-month" data-step="-1" aria-label="Mes siguiente" ${off ? '' : 'disabled'}>›</button>
+    </div>`;
+  }
+  if (year) h += '<p class="muted year-hint">Últimos 12 meses. Cada fila es un mes y cada cuadro un día; a la derecha, los días hechos ese mes.</p>';
+
+  if (active.length) {
+    h += `<div class="block"><ul class="card list">${active.map(hb => {
+      const c = area(hb.area).color, st = habitStreak(hb);
+      const meta = year
+        ? `<span>${habitYearCount(hb)} veces en 12 meses</span><span>${habitRate(hb, 365)}% del año</span><span>mejor racha ${habitBestStreak(hb)}</span>`
+        : `<span>${st ? `🔥 ${st} día${st > 1 ? 's' : ''}` : 'Sin racha'}</span><span>${habitRate(hb, 30)}% en 30 días</span>${(hb.autoTypes || []).length ? '<span title="Se marca solo al avanzar en la Biblioteca">⚡ automático</span>' : ''}`;
+      return `<li class="row habit r-${range}" style="--c:${c}">
+        <button class="row-main" data-action="open-habit" data-id="${hb.id}">
+          <span class="row-title">${hb.icon} ${esc(hb.name)}</span>
+          <span class="row-meta">${meta}</span>
+        </button>
+        ${year ? yearGrid(hb) : `<div class="weeks">
+          ${calendar ? `<div class="week head" aria-hidden="true">${WEEKDAYS.map(w => `<small>${w.l}</small>`).join('')}</div>` : ''}
+          ${rows.map(row => `<div class="week">${row.map((d, i) => habitCell(hb, d, calendar, i === 0)).join('')}</div>`).join('')}
+        </div>`}
+      </li>`;
+    }).join('')}</ul></div>`;
+  } else {
+    h += empty('🔥', 'No tienes hábitos activos. Crea uno con el botón +.');
+  }
+
+  if (archived.length) {
+    h += section('Archivados', `<ul class="card list">${archived.map(hb => `<li class="row"><button class="row-main" data-action="open-habit" data-id="${hb.id}">
         <span class="row-title">${hb.icon} ${esc(hb.name)}</span>
-        <span class="row-meta"><span>${st ? `🔥 ${st} día${st > 1 ? 's' : ''}` : 'Sin racha'}</span><span>${habitRate(hb, 30)}% en 30 días</span>${(hb.autoTypes || []).length ? '<span title="Se marca solo al avanzar en la Biblioteca">⚡ automático</span>' : ''}</span>
-      </button>
-      <div class="weeks">
-        ${calendar ? `<div class="week head" aria-hidden="true">${WEEKDAYS.map(w => `<small>${w.l}</small>`).join('')}</div>` : ''}
-        ${rows.map(row => `<div class="week">${row.map((d, i) => habitCell(hb, d, calendar, i === 0)).join('')}</div>`).join('')}
-      </div>
-    </li>`;
-  }).join('')}</ul></div>`;
+        <span class="row-meta"><span>Archivado ${fmtDue(hb.archivedAt).toLowerCase()}</span><span>${Object.values(state.habitLog).filter(l => l.includes(hb.id)).length} veces en total</span></span>
+      </button><span class="chev">›</span></li>`).join('')}</ul>
+      <p class="muted year-hint">Conservan todo su historial. Tócalos para verlo o recuperarlos.</p>`);
+  }
   return h;
 }
 
-function heatmap(hb) {
-  const t = today(), weeks = 16, start = addDays(weekStart(t), -7 * (weeks - 1));
-  let cells = '';
-  for (let w = 0; w < weeks; w++) for (let d = 0; d < 7; d++) {
-    const day = addDays(start, w * 7 + d);
-    const cls = day > t ? 'future' : habitDone(hb.id, day) ? 'on' : habitDue(hb, day) ? 'miss' : 'rest';
-    cells += `<i class="${cls}" style="grid-column:${w + 1};grid-row:${d + 1}" title="${fmtDue(day)}"></i>`;
+/* Veces hechas en los últimos 12 meses (desde el día 1 del mes de hace 11 meses) */
+function habitYearCount(hb) {
+  const from = addMonths(today().slice(0, 7) + '-01', -11);
+  return Object.keys(state.habitLog).filter(d => d >= from && d <= today() && state.habitLog[d].includes(hb.id)).length;
+}
+
+/* Cuadrícula de un año: una fila por mes (los 12 últimos), un cuadro por día */
+function yearGrid(hb) {
+  const t = today(), start = t.slice(0, 7) + '-01';
+  let html = '';
+  for (let i = 11; i >= 0; i--) {
+    const first = addMonths(start, -i), d0 = parseDay(first);
+    const days = new Date(d0.getFullYear(), d0.getMonth() + 1, 0).getDate();
+    let cells = '', done = 0;
+    for (let n = 1; n <= 31; n++) {
+      if (n > days) { cells += '<i class="none"></i>'; continue; }
+      const day = first.slice(0, 8) + pad(n);
+      const on = habitDone(hb.id, day);
+      if (on) done++;
+      const cls = day > t ? 'future' : on ? 'on' : habitDue(hb, day) ? 'miss' : 'rest';
+      cells += `<i class="${cls}${day === t ? ' today' : ''}" title="${n} ${MONTHS[d0.getMonth()]}${on ? ' · hecho' : ''}"></i>`;
+    }
+    const label = MONTHS[d0.getMonth()] + (d0.getMonth() === 0 || i === 11 ? ` <em>${String(d0.getFullYear()).slice(2)}</em>` : '');
+    html += `<div class="yrow"><small>${label}</small>${cells}<b>${done || ''}</b></div>`;
   }
-  return `<div class="heat" style="--c:${area(hb.area).color}">${cells}</div>`;
+  return `<div class="year" style="--c:${area(hb.area).color}">${html}</div>`;
 }
 
 /* ---------- BIBLIOTECA ---------- */
@@ -286,7 +333,7 @@ function viewResumen() {
   const doneWeek = state.tasks.filter(x => x.status === 'done' && x.doneAt >= ws).length;
   const pending = state.tasks.filter(x => x.status !== 'done');
   const finished = state.library.filter(i => i.status === 'done' && (i.finishedAt || '').startsWith(year));
-  const best = state.habits.reduce((m, hb) => Math.max(m, habitStreak(hb)), 0);
+  const best = activeHabits().reduce((m, hb) => Math.max(m, habitStreak(hb)), 0);
   const weeks = tasksDonePerWeek(8), max = Math.max(1, ...weeks.map(w => w.n));
 
   let h = header('Resumen', `Año ${year}`);
@@ -307,7 +354,7 @@ function viewResumen() {
     ? `<div class="card pad stat-rows">${byType.map(x => `<div class="stat-row"><span>${x.tp.icon} ${x.tp.plural}</span><b>${x.n}</b></div>`).join('')}</div>`
     : empty('📚', 'Cuando termines un libro, serie o curso, se contará aquí.'));
 
-  if (state.habits.length) h += section('Hábitos: últimos 30 días', `<div class="card pad stat-rows">${state.habits.map(hb => {
+  if (activeHabits().length) h += section('Hábitos: últimos 30 días', `<div class="card pad stat-rows">${activeHabits().map(hb => {
     const r = habitRate(hb, 30);
     return `<div class="stat-bar"><div class="stat-row"><span>${hb.icon} ${esc(hb.name)}</span><b>${r}%</b></div>${bar(r, area(hb.area).color)}</div>`;
   }).join('')}</div>`);
