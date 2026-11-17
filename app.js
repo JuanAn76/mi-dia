@@ -7,6 +7,7 @@ const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
 function render() {
+  if (ui.dragging) { ui.renderLater = true; return; }   // no redibujar mientras se arrastra un hábito
   const gate = Cloud.enabled && !Cloud.user;            // con Firebase activo, primero hay que entrar
   document.body.classList.toggle('gate', gate);
   if (gate) {
@@ -16,7 +17,7 @@ function render() {
   }
   $('#view').innerHTML = VIEWS[ui.tab]();
   $('#tabs').innerHTML = renderTabs();
-  const labels = { hoy: 'Añadir', tareas: 'Nueva tarea', habitos: 'Nuevo hábito', biblioteca: 'Añadir a la biblioteca', resumen: 'Añadir' };
+  const labels = { hoy: 'Añadir', fasting: 'Registrar hoy', tareas: 'Nueva tarea', habitos: 'Nuevo hábito', biblioteca: 'Añadir a la biblioteca', resumen: 'Añadir' };
   $('#fab').setAttribute('aria-label', labels[ui.tab]);
 }
 
@@ -98,6 +99,7 @@ function taskSheet(id, preset = {}) {
       <button type="button" class="link" data-action="sub-add">+ Añadir subtarea</button>
     </div>
     <div class="group">${field('Notas', `<textarea name="notes" rows="3" placeholder="Detalles, enlaces…">${esc(t.notes || '')}</textarea>`, 'stack')}</div>
+    ${id ? `<button type="button" class="btn ghost full" data-action="mail-task" data-id="${id}">✉️ Enviar por correo…</button>` : ''}
     ${id ? deleteBtn('delete-task', id, 'Eliminar tarea') : ''}
   </form>`;
   openSheet({ title: id ? 'Editar tarea' : 'Nueva tarea', body, formId: 'f-task' });
@@ -154,6 +156,8 @@ function habitSheet(id) {
   const custom = HABIT_ICONS.includes(h.icon) ? '' : h.icon;
   const body = `<form id="f-habit" data-id="${id || ''}" autocomplete="off">
     <input class="title-input" name="name" value="${esc(h.name)}" placeholder="Ej. Leer 20 minutos" required ${id ? '' : 'data-autofocus'} aria-label="Nombre del hábito">
+    <div class="group">${field('Sección', `<input name="group" list="habit-groups" maxlength="40" value="${esc(h.group || '')}" placeholder="Sin sección (ej. Salud)">`)}</div>
+    <datalist id="habit-groups">${[...new Set(state.habits.map(x => (x.group || '').trim()).filter(Boolean))].map(g => `<option value="${esc(g)}"></option>`).join('')}</datalist>
     <fieldset class="pick icons"><legend>Icono</legend>${HABIT_ICONS.map(i =>
       `<label class="pick-item"><input type="radio" name="icon" value="${i}" ${h.icon === i ? 'checked' : ''}><span>${i}</span></label>`).join('')}
       <input class="icon-custom" name="iconCustom" value="${esc(custom)}" maxlength="4" placeholder="Otro" aria-label="Otro icono (emoji)">
@@ -295,6 +299,58 @@ function notifyMarked(marked) {
   if (marked && marked.length) toast(`⚡ Hábito marcado: ${marked.map(h => h.name).join(', ')}`);
 }
 
+/* ---------- fasting / mood: formulario de un día ---------- */
+function daySheet(date) {
+  const d = getDay(date) || {};
+  const scale = (name, label, cur, color, hint) => `<fieldset class="pick scale" style="--c:${color}"><legend>${label} <small>${hint}</small></legend>
+    <label class="pick-item"><input type="radio" name="${name}" value="" ${cur ? '' : 'checked'}><span>–</span></label>
+    ${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => `<label class="pick-item"><input type="radio" name="${name}" value="${n}" ${Math.round(cur || 0) === n ? 'checked' : ''}><span>${n}</span></label>`).join('')}
+  </fieldset>`;
+  const longDate = parseDay(date).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
+  const body = `<form id="f-day" data-id="${date}" autocomplete="off">
+    <p class="day-title">${longDate.charAt(0).toUpperCase() + longDate.slice(1)}</p>
+    ${scale('mood', '🙂 Ánimo', d.mood, '#ff375f', '1 = fatal · 10 = genial')}
+    ${scale('stress', '😬 Estrés', d.stress, '#30b158', '1 = nada · 10 = máximo')}
+    <div class="group">
+      ${field('😴 Sueño (horas)', `<input type="number" name="sleep" min="0" max="16" step="0.5" inputmode="decimal" value="${d.sleep ?? ''}" placeholder="Ej. 7,5">`)}
+    </div>
+    <div class="group">
+      ${field('🍽 Primera comida', `<input type="time" name="eatStart" value="${d.eatStart || ''}">`)}
+      ${field('🍽 Última comida', `<input type="time" name="eatEnd" value="${d.eatEnd || ''}">`)}
+      <p class="muted fast-info" id="fast-info"></p>
+    </div>
+    <div class="group">
+      ${field('⚖️ Peso (kg)', `<input type="number" name="weight" min="20" max="300" step="0.1" inputmode="decimal" value="${d.weight ?? ''}" placeholder="Opcional">`)}
+      <label class="field"><span>💪 Entrené hoy</span><input type="checkbox" name="fitness" class="switch" ${d.fitness ? 'checked' : ''}></label>
+    </div>
+    <div class="group">${field('Notas', `<textarea name="notes" rows="2" placeholder="Cómo fue el día, qué comiste…">${esc(d.notes || '')}</textarea>`, 'stack')}</div>
+    ${getDay(date) ? deleteBtn('delete-day', date, 'Borrar el registro de este día') : ''}
+  </form>`;
+  openSheet({ title: 'Fasting / Mood', body, formId: 'f-day' });
+  updateFastInfo();
+}
+
+function updateFastInfo() {
+  const f = $('#f-day'), el = $('#fast-info');
+  if (!f || !el) return;
+  const w = eatWindow({ eatStart: f.eatStart.value, eatEnd: f.eatEnd.value });
+  el.textContent = w === null ? 'Pon la hora de la primera y la última comida para calcular el ayuno.' : `Ventana de comidas: ${fmtNum(w)} h · Ayuno: ${fmtNum(24 - w)} h`;
+}
+
+function saveDay(form) {
+  const f = new FormData(form);
+  const num = k => { const v = parseFloat(String(f.get(k) || '').replace(',', '.')); return Number.isFinite(v) ? v : null; };
+  const data = {
+    id: form.dataset.id, mood: num('mood'), stress: num('stress'), sleep: num('sleep'),
+    eatStart: f.get('eatStart') || '', eatEnd: f.get('eatEnd') || '', weight: num('weight'),
+    fitness: f.get('fitness') === 'on', notes: (f.get('notes') || '').trim(),
+  };
+  const emptyDay = !data.mood && !data.stress && !data.sleep && !data.eatStart && !data.eatEnd && !data.weight && !data.fitness && !data.notes;
+  if (emptyDay) { if (getDay(data.id)) deleteDay(data.id); }
+  else upsertDay(data);
+  closeSheet(); render();
+}
+
 /* ---------- selector rápido y ajustes ---------- */
 function chooserSheet() {
   const body = `<div class="chooser">
@@ -313,6 +369,7 @@ function settingsSheet() {
         ? `Sesión iniciada como <b>${esc(Cloud.user.email)}</b>. Tus datos se sincronizan entre todos los dispositivos donde entres con esta cuenta, y también se guardan sin conexión.`
         : 'Ahora mismo todo se guarda <b>solo en este dispositivo</b>. La sincronización se activa al conectar la app con Firebase.'}</p></div>
     ${cloud ? '<div class="group pad"><span class="group-title">Avisos 🔔</span><div id="push-box"><p class="muted">Comprobando…</p></div></div>' : ''}
+    ${cloud ? '<div class="group pad"><span class="group-title">Google: calendario y correo</span><div id="google-box"><p class="muted">Comprobando…</p></div></div>' : ''}
     <div class="group pad"><span class="group-title">Diagnóstico</span><div id="diag" class="stat-rows"><p class="muted">Comprobando…</p></div></div>
     <button class="btn ghost full" data-action="export">Descargar copia de seguridad</button>
     <label class="btn ghost full">Restaurar una copia…<input type="file" id="import-file" accept="application/json,.json" hidden></label>
@@ -323,11 +380,12 @@ function settingsSheet() {
     <button class="btn danger full" data-action="reset">Borrar todo y empezar de cero</button>`;
   openSheet({ title: 'Ajustes', body, cancelLabel: 'Cerrar' });
   renderPushSettings();
+  renderGoogleSettings();
   runDiagnostics();
 }
 
 /* Compara lo que hay en este dispositivo con lo que hay de verdad en la nube */
-const APP_VERSION = 'v9 · año';
+const APP_VERSION = 'v10 · google + fasting';
 async function runDiagnostics() {
   const show = (rows, verdict) => {
     const el = $('#diag');
@@ -386,6 +444,7 @@ const ACTIONS = {
   add: () => {
     if (ui.tab === 'tareas') ACTIONS['new-task']();
     else if (ui.tab === 'habitos') habitSheet();
+    else if (ui.tab === 'fasting') daySheet(today());
     else if (ui.tab === 'biblioteca') libSheet();
     else chooserSheet();
   },
@@ -424,6 +483,44 @@ const ACTIONS = {
   'delete-lib': el => { if (confirmed(el)) { deleteItem(el.dataset.id); closeSheet(); render(); } },
   'lib-progress': el => progressSheet(el.dataset.id),
   'cover-auto': () => setCoverChoice('auto', ''),
+  /* --- Google: sugerencias --- */
+  'open-suggestions': () => { closeSheet(); suggestionsSheet(); googleRefresh(true); },
+  'google-scan': el => {
+    const src = el.dataset.source;
+    $$('[data-action=google-scan]').forEach(b => { b.disabled = true; });
+    el.innerHTML = 'Revisando…<br><small>puede tardar unos segundos</small>';
+    pushCall('/google/scan', { source: src }).then(r => {
+      processPending(r.pending);
+      const n = ui.suggestions.filter(s => s.source === (src === 'calendar' ? 'calendar' : 'gmail')).length;
+      toast(r.nuevos ? `${r.nuevos} elemento${r.nuevos === 1 ? '' : 's'} nuevo${r.nuevos === 1 ? '' : 's'} revisado${r.nuevos === 1 ? '' : 's'} · ${n} sugerencia${n === 1 ? '' : 's'}` : 'Nada nuevo desde la última revisión');
+    }).catch(() => toast('No se pudo revisar. ¿Está Google conectado en Ajustes?')).then(() => { render(); suggestionsSheet(); });
+  },
+  'sug-discard': el => resolveSuggestion(el.dataset.sid, 'discarded'),
+  'sug-discard-all': el => {
+    if (!confirmed(el)) return;
+    const ids = ui.suggestions.map(s => s.id);
+    ui.suggestions = [];
+    pushCall('/google/resolve', { ids, status: 'discarded' }).catch(() => {});
+    render(); suggestionsSheet();
+  },
+  'google-disconnect': el => { if (confirmed(el)) pushCall('/google/disconnect').then(() => { ui.suggestions = []; render(); renderGoogleSettings(); }); },
+
+  /* --- enviar tarea por correo --- */
+  'mail-task': el => mailSheet(el.dataset.id),
+  'mail-when': el => {
+    const d = new Date(), w = el.dataset.when;
+    if (w === 'now') d.setSeconds(0, 0);
+    else {
+      d.setDate(d.getDate() + (w === 'tomorrow' ? 1 : ((8 - d.getDay()) % 7 || 7)));
+      d.setHours(8, 0, 0, 0);
+    }
+    $('#f-mail [name=sendAt]').value = localDT(d);
+  },
+  'mail-cancel': el => { pushCall('/mail/cancel', { id: el.dataset.id }).then(() => { toast('Envío cancelado'); loadMailList(el.dataset.task); }); },
+
+  'open-day': el => daySheet(el.dataset.date || el.getAttribute('data-date')),
+  'fast-month': el => { ui.fastMonthOff = Math.max(0, (ui.fastMonthOff || 0) + Number(el.dataset.step)); render(); },
+  'delete-day': el => { if (confirmed(el)) { deleteDay(el.dataset.id); closeSheet(); render(); } },
   'habit-month': el => { ui.habitMonthOff = Math.max(0, (ui.habitMonthOff || 0) + Number(el.dataset.step)); render(); },
   'archive-habit': el => {
     const h = getHabit(el.dataset.id), on = !h.archived;
@@ -474,6 +571,10 @@ document.addEventListener('submit', e => {
   e.preventDefault();
   const form = e.target, f = new FormData(form);
   if (form.id === 'f-auth') authSubmit(form, e.submitter);
+  else if (form.id === 'f-day') saveDay(form);
+  else if (form.classList.contains('f-sug')) acceptSuggestion(form);
+  else if (form.id === 'f-gconnect') googleConnect(form);
+  else if (form.id === 'f-mail') scheduleMail(form);
   else if (form.id === 'f-task') saveTask(form);
   else if (form.id === 'f-lib') saveLib(form);
   else if (form.id === 'f-project') {
@@ -488,6 +589,7 @@ document.addEventListener('submit', e => {
     upsertHabit({
       id: form.dataset.id, name, icon: f.get('iconCustom').trim() || f.get('icon') || '⭐', area: f.get('area') || 'personal',
       days: days.length ? days : [0, 1, 2, 3, 4, 5, 6], autoTypes: f.getAll('autoTypes'),
+      group: (f.get('group') || '').trim().slice(0, 40),
     });
     closeSheet(); render();
   } else if (form.id === 'f-progress') {
@@ -508,6 +610,11 @@ document.addEventListener('change', e => {
     $('.field.nag').classList.toggle('hidden', el.value === 'none');
     $('.field.nag-times').classList.toggle('hidden', el.value === 'none' || every === '0');
     if (el.value === 'custom' && !form.remindAt.value) form.remindAt.value = defaultRemindAt({ due: form.due.value, time: form.time.value });
+  }
+  if (el.form && el.form.id === 'f-day' && (el.name === 'eatStart' || el.name === 'eatEnd')) updateFastInfo();
+  if (el.name === 'tenant' && el.form && el.form.classList.contains('f-sug')) {   // factura: el título cambia según el inquilino
+    const s = ui.suggestions.find(x => x.id === el.form.dataset.sid);
+    if (s) el.form.title.value = billTitle(s, el.value);
   }
   if (el.name === 'remindEvery') $('.field.nag-times').classList.toggle('hidden', el.value === '0');
   if (el.name === 'projectId' && el.value) {                 // al elegir proyecto, se propone su área
@@ -537,7 +644,89 @@ document.addEventListener('change', e => {
 
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && $('#sheet-root').innerHTML) closeSheet();
+  /* Teclado: con el asa enfocada, las flechas mueven el hábito */
+  const handle = e.target.closest && e.target.closest('.drag-handle');
+  if (handle && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+    e.preventDefault();
+    const list = activeHabits(), i = list.findIndex(h => h.id === handle.dataset.id), j = i + (e.key === 'ArrowUp' ? -1 : 1);
+    if (i < 0 || j < 0 || j >= list.length) return;
+    const moving = list[i];
+    moving.group = list[j].group || '';
+    list.splice(i, 1); list.splice(j, 0, moving);
+    list.forEach((h, k) => { h.order = k; });
+    saveState(); render();
+    const again = $(`.drag-handle[data-id="${moving.id}"]`); if (again) again.focus();
+  }
 });
+
+/* ---------- reordenar hábitos arrastrando (ratón y dedo) ---------- */
+let drag = null;
+document.addEventListener('pointerdown', e => {
+  const handle = e.target.closest('.drag-handle');
+  if (!handle || drag) return;
+  e.preventDefault();
+  const row = handle.closest('[data-habit-row]');
+  drag = { row, pointerId: e.pointerId, y: e.clientY, scroll: 0 };
+  ui.dragging = true;
+  row.classList.add('dragging');
+  document.body.classList.add('is-dragging');
+  try { handle.setPointerCapture(e.pointerId); } catch (err) { /* sin captura también funciona */ }
+  /* Desplazamiento automático al acercarse a los bordes de la pantalla */
+  drag.timer = setInterval(() => {
+    if (!drag) return;
+    const edge = 90, bottom = window.innerHeight - 110;
+    const step = drag.y < edge ? -12 : drag.y > bottom ? 12 : 0;
+    if (step) { window.scrollBy(0, step); dragMove(); }
+  }, 16);
+});
+document.addEventListener('pointermove', e => {
+  if (!drag || e.pointerId !== drag.pointerId) return;
+  e.preventDefault();
+  drag.y = e.clientY;
+  dragMove();
+}, { passive: false });
+document.addEventListener('pointerup', e => { if (drag && e.pointerId === drag.pointerId) dragEnd(); });
+document.addEventListener('pointercancel', e => { if (drag && e.pointerId === drag.pointerId) dragEnd(); });
+
+function dragMove() {
+  const y = drag.y, me = drag.row;
+  const lists = $$('.habit-list');
+  const rows = $$('[data-habit-row]').filter(r => r !== me);
+  const target = rows.find(r => { const b = r.getBoundingClientRect(); return y < b.top + b.height / 2; });
+  if (target) {
+    const list = target.parentNode, idx = lists.indexOf(list);
+    /* Encima del título de una sección: va al final de la sección anterior */
+    if (target === [...list.children].find(c => c !== me) && idx > 0 && y < list.getBoundingClientRect().top) {
+      if (lists[idx - 1].lastElementChild !== me) lists[idx - 1].appendChild(me);
+    } else if (target.previousElementSibling !== me || target.parentNode !== me.parentNode) {
+      list.insertBefore(me, target);
+    }
+  } else {
+    const last = lists[lists.length - 1];
+    if (last && last.lastElementChild !== me) last.appendChild(me);
+  }
+}
+
+function dragEnd() {
+  clearInterval(drag.timer);
+  drag.row.classList.remove('dragging');
+  document.body.classList.remove('is-dragging');
+  let k = 0, changed = false;
+  $$('.habit-list').forEach(list => {
+    const group = list.dataset.group || '';
+    [...list.children].forEach(li => {
+      const h = getHabit(li.dataset.id);
+      if (!h) return;
+      if (h.order !== k || (h.group || '') !== group) { h.order = k; h.group = group; changed = true; }
+      k++;
+    });
+  });
+  drag = null;
+  ui.dragging = false;
+  if (changed) saveState();
+  ui.renderLater = false;
+  render();
+}
 
 /* ---------- arranque ---------- */
 if (Cloud.enabled) {

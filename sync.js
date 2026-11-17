@@ -15,7 +15,7 @@ const Cloud = {
   synced: {},                   // lo último que se sabe que hay en la nube, por colección
   unsub: [],
 };
-const CLOUD_COLS = ['tasks', 'projects', 'habits', 'library'];
+const CLOUD_COLS = ['tasks', 'projects', 'habits', 'library', 'days'];
 const FIREBASE_SDK = 'https://www.gstatic.com/firebasejs/10.12.2/firebase-';
 
 const loadScript = src => new Promise((ok, ko) => {
@@ -61,7 +61,10 @@ function cloudOnUser(user) {
   const waiting = new Set(CLOUD_COLS.concat('habitLog'));
   const arrived = name => {
     waiting.delete(name);
-    if (!waiting.size && !Cloud.ready) { Cloud.ready = true; fetchMissingCovers(render); }
+    if (!waiting.size && !Cloud.ready) {
+      Cloud.ready = true; fetchMissingCovers(render);
+      if (typeof googleRefresh === 'function') googleRefresh(true);   // sugerencias pendientes de calendario y correo
+    }
     render();
     if (name === 'tasks' && typeof pushSyncSoon === 'function') pushSyncSoon();   // mantener al día los avisos pendientes
   };

@@ -16,11 +16,13 @@ const TABS = [
   { id: 'hoy',        name: 'Hoy',        icon: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M5 19l1.5-1.5M17.5 6.5L19 5"/>' },
   { id: 'tareas',     name: 'Tareas',     icon: '<path d="M9 6h11M9 12h11M9 18h11"/><path d="M3.5 6l1 1 2-2M3.5 12l1 1 2-2M3.5 18l1 1 2-2"/>' },
   { id: 'habitos',    name: 'Hábitos',    icon: '<path d="M12 21c4 0 7-2.7 7-6.5 0-3-2-4.7-3-7-.6 1.6-1.4 2.4-2.5 3C13.5 7 12 4.5 9.5 3c.4 3-1 4.6-2.3 6.3C6 10.900 5 12.500 5 14.500 5 18.300 8 21 12 21z"/>' },
+  { id: 'fasting',    name: 'Fasting',    icon: '<path d="M3 12h4l2.500-6 4 12 2.500-6H21"/>' },
   { id: 'biblioteca', name: 'Biblioteca', icon: '<path d="M4 5.5A1.500 1.500 0 015.500 4H11v15H5.500A1.500 1.500 0 004 20.500v-15zM20 5.500A1.500 1.500 0 0018.500 4H13v15h5.500a1.500 1.500 0 011.500 1.500v-15z"/>' },
   { id: 'resumen',    name: 'Resumen',    icon: '<path d="M5 20v-7M12 20V5M19 20v-10"/>' },
 ];
 
 const svg = (inner, cls = '') => `<svg class="ico ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
+const GRIP = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><circle cx="9" cy="6" r="1.700"/><circle cx="15" cy="6" r="1.700"/><circle cx="9" cy="12" r="1.700"/><circle cx="15" cy="12" r="1.700"/><circle cx="9" cy="18" r="1.700"/><circle cx="15" cy="18" r="1.700"/></svg>';
 const GEAR = svg('<circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 00-.1-1.300l2-1.500-2-3.400-2.300 1a7 7 0 00-2.300-1.300L14 3h-4l-.300 2.500a7 7 0 00-2.300 1.300l-2.300-1-2 3.400 2 1.500a7 7 0 000 2.600l-2 1.500 2 3.400 2.300-1a7 7 0 002.300 1.300L10 21h4l.300-2.500a7 7 0 002.300-1.300l2.300 1 2-3.400-2-1.500c.1-.400.100-.900.100-1.300z"/>');
 
 function renderTabs() {
@@ -113,6 +115,12 @@ function viewHoy() {
     h += `<div class="card day-progress"><div class="ring" style="--p:${pct}"><b>${pct}%</b></div>
       <div><strong>${doneToday} de ${totalToday} hechas hoy</strong><p class="muted">${late.length ? `${late.length} atrasada${late.length > 1 ? 's' : ''} por revisar` : pct === 100 ? 'Día completo. ¡Bien hecho!' : 'Vas al día'}</p></div></div>`;
   }
+
+  if (typeof suggestionsCard === 'function') h += suggestionsCard();
+  const dl = getDay(t);
+  h += dl
+    ? `<button class="card fast-today" data-action="open-day" data-date="${t}"><span class="fast-ico">📈</span><span><b>Fasting / Mood de hoy</b><small>${daySummary(dl)}</small></span><span class="chev">›</span></button>`
+    : `<button class="card fast-today pending" data-action="open-day" data-date="${t}"><span class="fast-ico">📈</span><span><b>Registra tu día</b><small>Estrés, sueño, ánimo y ventana de comidas</small></span><span class="chev">›</span></button>`;
 
   if (late.length) h += section('Atrasadas', taskList(late), `<span class="count late">${late.length}</span>`);
   h += section('Tareas de hoy', todays.length ? taskList(todays, { hideDate: true }) : empty('☀️', 'No hay tareas para hoy. Pulsa + para apuntar una.'));
@@ -252,22 +260,30 @@ function viewHabitos() {
   if (year) h += '<p class="muted year-hint">Últimos 12 meses. Cada fila es un mes y cada cuadro un día; a la derecha, los días hechos ese mes.</p>';
 
   if (active.length) {
-    h += `<div class="block"><ul class="card list">${active.map(hb => {
+    const habitRow = hb => {
       const c = area(hb.area).color, st = habitStreak(hb);
       const meta = year
         ? `<span>${habitYearCount(hb)} veces en 12 meses</span><span>${habitRate(hb, 365)}% del año</span><span>mejor racha ${habitBestStreak(hb)}</span>`
         : `<span>${st ? `🔥 ${st} día${st > 1 ? 's' : ''}` : 'Sin racha'}</span><span>${habitRate(hb, 30)}% en 30 días</span>${(hb.autoTypes || []).length ? '<span title="Se marca solo al avanzar en la Biblioteca">⚡ automático</span>' : ''}`;
-      return `<li class="row habit r-${range}" style="--c:${c}">
-        <button class="row-main" data-action="open-habit" data-id="${hb.id}">
-          <span class="row-title">${hb.icon} ${esc(hb.name)}</span>
-          <span class="row-meta">${meta}</span>
-        </button>
+      return `<li class="row habit r-${range}" style="--c:${c}" data-habit-row data-id="${hb.id}">
+        <div class="habit-top">
+          <button class="row-main" data-action="open-habit" data-id="${hb.id}">
+            <span class="row-title">${hb.icon} ${esc(hb.name)}</span>
+            <span class="row-meta">${meta}</span>
+          </button>
+          <button class="drag-handle" data-id="${hb.id}" aria-label="Mover «${esc(hb.name)}»: arrastra, o usa las flechas arriba y abajo" title="Arrastra para cambiar el orden">${GRIP}</button>
+        </div>
         ${year ? yearGrid(hb) : `<div class="weeks">
           ${calendar ? `<div class="week head" aria-hidden="true">${WEEKDAYS.map(w => `<small>${w.l}</small>`).join('')}</div>` : ''}
           ${rows.map(row => `<div class="week">${row.map((d, i) => habitCell(hb, d, calendar, i === 0)).join('')}</div>`).join('')}
         </div>`}
       </li>`;
-    }).join('')}</ul></div>`;
+    };
+    const groups = habitGroups(active), named = groups.some(g => g.name);
+    h += groups.map(g => `<div class="block habit-group">
+      ${named ? `<div class="block-head"><h2>${g.name ? esc(g.name) : 'General'}</h2><span class="count">${g.habits.length}</span></div>` : ''}
+      <ul class="card list habit-list" data-group="${esc(g.name)}">${g.habits.map(habitRow).join('')}</ul></div>`).join('');
+    if (active.length > 1) h += '<p class="muted year-hint">Arrastra el asa ⠿ para cambiar el orden o pasar un hábito a otra sección. Las secciones se crean al editar un hábito.</p>';
   } else {
     h += empty('🔥', 'No tienes hábitos activos. Crea uno con el botón +.');
   }
@@ -359,6 +375,17 @@ function viewResumen() {
     return `<div class="stat-bar"><div class="stat-row"><span>${hb.icon} ${esc(hb.name)}</span><b>${r}%</b></div>${bar(r, area(hb.area).color)}</div>`;
   }).join('')}</div>`);
 
+  const last30 = state.days.filter(d => d.id > addDays(t, -30) && d.id <= t);
+  if (last30.length) {
+    const pick = k => last30.map(d => d[k]).filter(v => typeof v === 'number' && v > 0);
+    const win = last30.map(eatWindow).filter(v => v !== null);
+    const row = (label, v, suf = '') => `<div class="stat-row"><span>${label}</span><b>${v === null ? '—' : fmtNum(v) + suf}</b></div>`;
+    h += section('Fasting / Mood: últimos 30 días', `<div class="card pad stat-rows">
+      ${row('📝 Días registrados', last30.length)}${row('🙂 Ánimo medio', avg(pick('mood')))}${row('😴 Sueño medio', avg(pick('sleep')), ' h')}
+      ${row('😬 Estrés medio', avg(pick('stress')))}${row('🍽 Ventana media de comidas', avg(win), ' h')}${row('⏳ Ayuno medio', win.length ? 24 - avg(win) : null, ' h')}
+      ${row('💪 Días con entreno', last30.filter(d => d.fitness).length)}</div>`);
+  }
+
   const maxA = Math.max(1, ...AREAS.map(a => pending.filter(x => x.area === a.id).length));
   h += section('Pendientes por área', `<div class="card pad stat-rows">${AREAS.map(a => {
     const n = pending.filter(x => x.area === a.id).length;
@@ -367,4 +394,93 @@ function viewResumen() {
   return h;
 }
 
-const VIEWS = { hoy: viewHoy, tareas: viewTareas, habitos: viewHabitos, biblioteca: viewBiblioteca, resumen: viewResumen };
+/* ---------- FASTING / MOOD ---------- */
+const FAST_SERIES = [
+  { key: 'stress', name: 'Estrés', color: '#30b158', dx: -0.24 },
+  { key: 'sleep',  name: 'Sueño (h)', color: '#0a84ff', dx: 0 },
+  { key: 'mood',   name: 'Ánimo', color: '#ff375f', dx: 0.24 },
+];
+const FAST_PURPLE = '#af52de';
+
+function daySummary(d) {
+  const p = [];
+  if (d.mood) p.push(`Ánimo ${fmtNum(d.mood)}`);
+  if (d.sleep) p.push(`Sueño ${fmtNum(d.sleep)} h`);
+  if (d.stress) p.push(`Estrés ${fmtNum(d.stress)}`);
+  if (d.eatStart && d.eatEnd) p.push(`Comidas ${d.eatStart}–${d.eatEnd}`);
+  if (d.weight) p.push(`${fmtNum(d.weight)} kg`);
+  return p.join(' · ') || 'Sin datos';
+}
+
+const fastMonthStart = () => addMonths(today().slice(0, 7) + '-01', -(ui.fastMonthOff || 0));
+
+/* Gráfico del mes, como en la libreta: arriba estrés/sueño/ánimo (1–10), abajo ventana de comidas (8–23 h) */
+function fastChart(first, nDays) {
+  const W = 360, L = 24, R = 6, cw = (W - L - R) / nDays, t = today();
+  const xc = i => L + cw * (i + 0.5);
+  const yTop = v => 132 - (Math.min(10, Math.max(1, v)) - 1) / 9 * 120;     // 1..10 → 132..12
+  const yHour = h => 160 + (Math.min(23, Math.max(8, h)) - 8) / 15 * 150;  // 8..23 → 160..310
+  let g = '';
+  /* rejilla */
+  for (let v = 1; v <= 10; v++) g += `<line class="fc-grid${v === 1 ? ' strong' : ''}" x1="${L}" x2="${W - R}" y1="${yTop(v)}" y2="${yTop(v)}"/><text class="fc-axis" x="${L - 4}" y="${yTop(v) + 2.500}" text-anchor="end">${v}</text>`;
+  for (let hh = 9; hh <= 23; hh += 2) g += `<line class="fc-grid" x1="${L}" x2="${W - R}" y1="${yHour(hh)}" y2="${yHour(hh)}"/><text class="fc-axis" x="${L - 4}" y="${yHour(hh) + 2.500}" text-anchor="end">${hh}</text>`;
+  g += `<text class="fc-axis" x="${L - 4}" y="${yHour(8) + 2.500}" text-anchor="end">8</text>`;
+  g += `<text class="fc-label" x="${L - 4}" y="330" text-anchor="end">kg</text><text class="fc-label" x="${L - 4}" y="352" text-anchor="end">💪</text>`;
+  for (let i = 0; i < nDays; i++) {
+    const day = addDays(first, i), d = getDay(day), x = xc(i), wd = parseDay(day).getDay();
+    if (wd === 1 && i > 0) g += `<line class="fc-week" x1="${L + cw * i}" x2="${L + cw * i}" y1="8" y2="358"/>`;
+    if (day === t) g += `<rect class="fc-today" x="${L + cw * i}" y="6" width="${cw}" height="372" rx="2"/>`;
+    g += `<text class="fc-day${day === t ? ' now' : ''}" x="${x}" y="372" text-anchor="middle">${i + 1}</text>`;
+    if (d) {
+      const r = Math.min(3.200, cw * 0.17);
+      FAST_SERIES.forEach(s => { if (d[s.key]) g += `<circle cx="${x + s.dx * cw}" cy="${yTop(d[s.key])}" r="${r}" fill="${s.color}"/>`; });
+      const a = timeToH(d.eatStart), b = timeToH(d.eatEnd);
+      if (a !== null && b !== null) {
+        const y1 = yHour(a), y2 = yHour(b >= a ? b : 23);
+        g += `<line x1="${x}" x2="${x}" y1="${y1}" y2="${y2}" stroke="${FAST_PURPLE}" stroke-width="${Math.max(1.600, cw * 0.15)}" stroke-linecap="round"/>`;
+        g += `<circle class="fc-open" cx="${x}" cy="${y1}" r="${r}" stroke="${FAST_PURPLE}"/><circle cx="${x}" cy="${y2}" r="${r}" fill="${FAST_PURPLE}"/>`;
+      }
+      if (d.weight) g += `<text class="fc-w" transform="translate(${x + 2.200},338) rotate(-90)">${fmtNum(d.weight)}</text>`;
+      if (d.fitness) g += `<circle cx="${x}" cy="349" r="${Math.min(3, cw * 0.18)}" fill="#30b158"/>`;
+    }
+    if (day <= t) g += `<rect class="fc-hit" x="${L + cw * i}" y="0" width="${cw}" height="380" data-action="open-day" data-date="${day}"><title>${fmtDue(day)}</title></rect>`;
+  }
+  return `<svg class="fast-svg" viewBox="0 0 ${W} 380" role="img" aria-label="Gráfico del mes: estrés, sueño, ánimo y ventana de comidas">${g}</svg>`;
+}
+
+function viewFasting() {
+  const first = fastMonthStart(), d0 = parseDay(first);
+  const nDays = new Date(d0.getFullYear(), d0.getMonth() + 1, 0).getDate();
+  const name = d0.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
+  const off = ui.fastMonthOff || 0, t = today(), dl = getDay(t);
+  let h = header('Fasting / Mood', 'Toca un día del gráfico para rellenarlo o corregirlo');
+  h += `<button class="card fast-today ${dl ? '' : 'pending'}" data-action="open-day" data-date="${t}"><span class="fast-ico">📈</span><span><b>${dl ? 'Hoy' : 'Registra tu día de hoy'}</b><small>${dl ? daySummary(dl) : 'Estrés, sueño, ánimo y ventana de comidas'}</small></span><span class="chev">›</span></button>`;
+  h += `<div class="month-nav">
+    <button class="icon-btn" data-action="fast-month" data-step="1" aria-label="Mes anterior">‹</button>
+    <h2>${name.charAt(0).toUpperCase() + name.slice(1)}</h2>
+    <button class="icon-btn" data-action="fast-month" data-step="-1" aria-label="Mes siguiente" ${off ? '' : 'disabled'}>›</button>
+  </div>`;
+  h += `<div class="fast-legend">${FAST_SERIES.map(s => `<span><i style="background:${s.color}"></i>${s.name}</span>`).join('')}
+    <span><i class="bar" style="background:${FAST_PURPLE}"></i>Comidas (1.ª → última)</span><span><i style="background:#30b158"></i>💪 Entreno</span></div>`;
+  h += `<div class="card fast-chart">${fastChart(first, nDays)}</div>`;
+
+  /* medias del mes */
+  const days = state.days.filter(d => d.id.slice(0, 7) === first.slice(0, 7));
+  const pick = k => days.map(d => d[k]).filter(v => typeof v === 'number' && v > 0);
+  const win = days.map(eatWindow).filter(v => v !== null);
+  const weights = days.filter(d => d.weight).sort((a, b) => a.id.localeCompare(b.id));
+  const val = (v, suf = '') => v === null ? '—' : fmtNum(v) + suf;
+  h += `<div class="tiles">
+    <div class="card tile"><b>${days.length}</b><span>días registrados</span></div>
+    <div class="card tile"><b>${val(avg(pick('mood')))}</b><span>ánimo medio</span></div>
+    <div class="card tile"><b>${val(avg(pick('sleep')), ' h')}</b><span>sueño medio</span></div>
+    <div class="card tile"><b>${val(avg(pick('stress')))}</b><span>estrés medio</span></div>
+    <div class="card tile"><b>${val(avg(win), ' h')}</b><span>ventana media de comidas</span></div>
+    <div class="card tile"><b>${win.length ? fmtNum(24 - avg(win)) + ' h' : '—'}</b><span>ayuno medio</span></div>
+    <div class="card tile"><b>${days.filter(d => d.fitness).length}</b><span>días con entreno</span></div>
+    <div class="card tile"><b>${weights.length ? fmtNum(weights[weights.length - 1].weight) + ' kg' : '—'}</b><span>${weights.length > 1 ? `peso (${(weights[weights.length - 1].weight - weights[0].weight >= 0 ? '+' : '') + fmtNum(weights[weights.length - 1].weight - weights[0].weight)} kg en el mes)` : 'último peso'}</span></div>
+  </div>`;
+  return h;
+}
+
+const VIEWS = { fasting: viewFasting, hoy: viewHoy, tareas: viewTareas, habitos: viewHabitos, biblioteca: viewBiblioteca, resumen: viewResumen };

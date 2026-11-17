@@ -1,11 +1,11 @@
 /* Mi Día — permite abrir la app sin conexión.
    Estrategia: siempre se intenta la red primero (así las actualizaciones
    llegan solas) y, si no hay conexión, se usa la última copia guardada. */
-const CACHE = 'midia-v6';
+const CACHE = 'midia-v7';
 const SHELL = [
   './', 'index.html', 'manifest.json', 'icon.svg',
   'styles.css',
-  'config.js', 'store.js', 'views.js', 'sync.js', 'push.js', 'app.js',
+  'config.js', 'store.js', 'views.js', 'sync.js', 'push.js', 'google.js', 'app.js',
   'icon-180.png', 'icon-192.png', 'icon-512.png',
 ];
 
@@ -36,7 +36,9 @@ self.addEventListener('notificationclick', e => {
   const url = (e.notification.data && e.notification.data.url) || './';
   e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
     const open = list.find(c => 'focus' in c);
-    return open ? open.focus() : self.clients.openWindow(url);
+    if (!open) return self.clients.openWindow(url);
+    /* Si el aviso lleva a una sección concreta (p. ej. #sugerencias), ir allí */
+    return open.focus().then(c => (url.includes('#') && c && 'navigate' in c ? c.navigate(url) : c));
   }));
 });
 

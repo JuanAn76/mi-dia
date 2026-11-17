@@ -18,6 +18,9 @@ const FIREBASE_CONFIG = {
 
 /* Dirección del servidor de avisos (Cloudflare Worker). Mientras valga null, no hay avisos. */
 const PUSH_SERVER = 'https://mi-dia-avisos.jaserranor.workers.dev';
+
+/* Dirección pública de la app (para los enlaces de los correos) */
+const APP_PUBLIC_URL = 'https://juanan76.github.io/mi-dia/';
 /* Ejemplo:
 const FIREBASE_CONFIG = {
   apiKey: "…",

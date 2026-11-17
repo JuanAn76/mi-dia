@@ -102,7 +102,7 @@ const STORE_KEY = 'midia.v1';
 let state = null;
 
 function emptyState() {
-  return { tasks: [], projects: [], habits: [], habitLog: {}, library: [], meta: { demo: false } };
+  return { tasks: [], projects: [], habits: [], habitLog: {}, library: [], days: [], meta: { demo: false } };
 }
 
 function loadState() {
@@ -203,7 +203,21 @@ const habitDone = (id, day) => (state.habitLog[day] || []).includes(id);
 /* Un hábito "toca" un día si ya existía, no estaba archivado y es uno de sus días de la semana */
 const habitDue = (h, day) => day >= (h.createdAt || '0000') && (!h.archivedAt || day <= h.archivedAt)
   && (h.days || [0, 1, 2, 3, 4, 5, 6]).includes(parseDay(day).getDay());
-const activeHabits = () => state.habits.filter(h => !h.archived);
+/* Orden elegido arrastrando (los hábitos sin orden van al final, por fecha de creación) */
+const habitSort = (a, b) => ((a.order ?? 1e9) - (b.order ?? 1e9)) || (a.createdAt || '').localeCompare(b.createdAt || '');
+const activeHabits = () => state.habits.filter(h => !h.archived).sort(habitSort);
+
+/* Agrupa por sección respetando el orden: cada sección aparece donde está su primer hábito */
+function habitGroups(list) {
+  const groups = [];
+  list.forEach(h => {
+    const name = (h.group || '').trim();
+    let g = groups.find(x => x.name === name);
+    if (!g) { g = { name, habits: [] }; groups.push(g); }
+    g.habits.push(h);
+  });
+  return groups;
+}
 
 /* Archivar: deja de aparecer en el día a día, pero se conserva todo su historial */
 function archiveHabit(id, on) {
@@ -264,7 +278,10 @@ function habitRate(h, n) {
 
 function upsertHabit(data) {
   if (data.id) delete Object.assign(getHabit(data.id), data).demo;
-  else state.habits.push(Object.assign({ createdAt: today() }, data, { id: uid() }));
+  else {
+    const order = state.habits.reduce((m, h) => Math.max(m, h.order ?? -1), -1) + 1;
+    state.habits.push(Object.assign({ createdAt: today(), order }, data, { id: uid() }));
+  }
   saveState();
 }
 function deleteHabit(id) {
@@ -275,6 +292,25 @@ function deleteHabit(id) {
   });
   saveState();
 }
+
+/* ---------- fasting / mood (un registro por día; id = fecha) ---------- */
+const getDay = date => state.days.find(d => d.id === date);
+function upsertDay(data) {
+  const cur = getDay(data.id);
+  if (cur) { Object.keys(cur).forEach(k => { if (k !== 'id') delete cur[k]; }); Object.assign(cur, data); }
+  else state.days.push(Object.assign({}, data));
+  saveState();
+}
+function deleteDay(id) { state.days = state.days.filter(d => d.id !== id); saveState(); }
+const timeToH = s => { if (!s) return null; const [h, m] = s.split(':').map(Number); return h + (m || 0) / 60; };
+/* Horas entre la primera y la última comida (si la última pasa de medianoche, cuenta el día siguiente) */
+function eatWindow(d) {
+  const a = timeToH(d.eatStart), b = timeToH(d.eatEnd);
+  if (a === null || b === null) return null;
+  return b >= a ? b - a : b + 24 - a;
+}
+const fmtNum = (n, dec = 1) => (Math.round(n * 10 ** dec) / 10 ** dec).toLocaleString('es-ES');
+const avg = list => list.length ? list.reduce((s, x) => s + x, 0) / list.length : null;
 
 /* ---------- biblioteca ---------- */
 const getItem = id => state.library.find(i => i.id === id);
@@ -479,17 +515,28 @@ function demoState() {
   L('Curso de IA generativa', 'curso', 'DeepLearning.AI', 'doing', { progress: 9, total: 24 });
   L('Intro to Large Language Models', 'youtube', 'Andrej Karpathy', 'done', { progress: 100, rating: 5, url: 'https://www.youtube.com/watch?v=zjkBMFhNj_g', finishedAt: addDays(t, -6) });
   L('Cómo funcionan los transformers', 'articulo', 'Blog técnico', 'want');
+  /* Fasting / mood de las últimas dos semanas, parecido a una libreta real */
+  [[1, 3, 7.5, 6.5, '09:30', '16:30', 71.3, true], [2, 3, 7.5, 6.5, '09:30', '16:30'], [3, 3.5, 7, 6.5, '09:30', '17:00', null, true],
+   [4, 3, 8.5, 7, '09:30', '22:00'], [5, 3, 8, 7, '09:30', '18:00', null, true], [6, 3, 7, 6.5, '08:30', '16:00', 71.8],
+   [7, 3, 7, 6.5, '08:30', '20:30'], [8, 3, 7, 6.5, '08:30', '15:00', null, true], [9, 3.5, 7.5, 6, '09:00', '16:00'],
+   [10, 3.5, 7.5, 6, '09:00', '16:00', null, true], [11, 3, 8, 6.5, '09:00', '20:00'], [12, 3, 8, 6.5, '09:00', '18:00'],
+  ].forEach(([ago, stress, sleep, mood, eatStart, eatEnd, weight, fitness]) => s.days.push({
+    id: addDays(t, -ago), stress, sleep, mood, eatStart, eatEnd, weight: weight || null, fitness: !!fitness, notes: '',
+  }));
   DEMO_COLS.forEach(c => s[c].forEach(x => { x.demo = true; }));   // marca de "ejemplo" para poder borrarlos aparte
   return s;
 }
 
-const DEMO_COLS = ['tasks', 'projects', 'habits', 'library'];
+const DEMO_COLS = ['tasks', 'projects', 'habits', 'library', 'days'];
 const hasDemo = () => DEMO_COLS.some(c => state[c].some(x => x.demo));
 
 /* Añade los ejemplos a lo que ya haya, sin tocar los datos propios */
 function addDemoData() {
   const d = demoState();
-  DEMO_COLS.forEach(c => { state[c] = state[c].concat(d[c]); });
+  DEMO_COLS.forEach(c => {
+    const own = new Set(state[c].map(x => x.id));            // nunca pisar un día que ya hayas registrado
+    state[c] = state[c].concat(d[c].filter(x => !own.has(x.id)));
+  });
   Object.keys(d.habitLog).forEach(day => { state.habitLog[day] = (state.habitLog[day] || []).concat(d.habitLog[day]); });
   saveState();
 }
